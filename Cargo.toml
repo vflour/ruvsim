@@ -1,0 +1,33 @@
+[package]
+name = "ruvsim"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ruvvsim_tests_manual"
+path = "test/run/main.rs"
+
+[[test]]
+name = "ruvsim_tests_bdd"
+path = "test/cucumber_tests/mod.rs"
+harness = false
+
+[[test]]
+name = "ruvsim_tests_unit"
+path = "test/unit_tests/mod.rs"
+
+[lib]
+name = "ruvsim"
+path = "src/ruvsim/mod.rs"
+
+[dependencies]
+regex = "1.12.2"
+libc = "0.2"
+derive-getters = "0.5.0"
+cucumber = "0.21.1"
+tokio = "1.48.0"
+futures = "0.3.31"
+
+[build-dependencies]
+cmake = "0.1"
+

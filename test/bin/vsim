@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Minimal fake `vsim` used by tests.
+
+Reads commands from stdin (one per line) and writes responses to stdout that
+match the simple parsing the test harness expects: prompt lines starting with
+"VSIM <n>>", and log lines starting with "# ".
+
+This fake supports a few commands used by the tests:
+- run 0 / add wave: prints prompts
+- find nets -in /*: prints a single line with the net list
+- call $get_net_range {<path>}: prints the net range (we return [7:0] for /Dummy/a)
+- report: returns a numeric value '# 123'
+"""
+
+import sys
+
+PROMPT_IDX = 0
+
+
+def prompt():
+    global PROMPT_IDX
+    # include a newline so the parser's readline() returns a full line
+    sys.stdout.write(f"VSIM {PROMPT_IDX}>")
+    sys.stdout.flush()
+    PROMPT_IDX += 1
+
+
+def handle_line(line: str):
+    # Echo the command as a comment for debugging (to stderr so parser ignores it)
+    sys.stderr.write(f"# CMD: {line}\n")
+    prefix = "# --RESULT--"
+    line = line.replace("puts \"# --RESULT-- [","")
+    print(line)
+
+    if line.startswith("run "):
+        # simulate run completing
+        sys.stdout.write(f"{prefix} run finished\n")
+    elif line.startswith("add wave"):
+        sys.stdout.write(f"{prefix} waves added\n")
+    elif line.startswith("find nets"):
+        # Return three nets used by tests
+        sys.stdout.write(f"{prefix} /Dummy/clk /Dummy/a /Dummy/rst\n")
+    elif line.startswith(r"call \$get_net_range"):
+        # parse path between braces
+        start = line.find("{")
+        end = line.find("}")
+        path = line[start + 1 : end] if start != -1 and end != -1 else ""
+        if path == "/Dummy/a":
+            # Format matches RangeLog.KEYWORD_PATTERN like 'Register [7:0]'
+            sys.stdout.write(f"{prefix} Register [7:0]\n")
+        else:
+            sys.stdout.write(f"{prefix} Register [0:0]\n")
+    elif line.startswith("describe "):
+        # describe <net> should emit a line that RangeLog can parse
+        # Extract the net path and mirror the same widths we return above
+        parts = line.split()
+        path = parts[1] if len(parts) > 1 else ""
+        if path == "/Dummy/a":
+            sys.stdout.write(f"{prefix} Register [7:0]\n")
+        else:
+            sys.stdout.write(f"{prefix} Register [0:0]\n")
+    elif line.startswith("report"):
+        sys.stdout.write(f"{prefix} 123\n")
+    elif line.startswith("string map {\\n ;} [drivers"):
+        sys.stdout.write(f"{prefix} Drivers for /Dummy/net1:;     0  : Net /Dummy/net1;      1    : Driver /Dummy/net1_driver2\n")
+    else:
+        # Generic response
+        sys.stdout.write("# OK\n")
+    sys.stdout.flush()
+
+
+def main():
+    sys.stdout.write("# Fake VSIM started\n")
+    sys.stdout.flush()
+    # initial prompt
+    prompt()
+    for raw in sys.stdin:
+        handle_line(raw)
+        # simulate the simulator printing a prompt after processing
+        prompt()
+
+
+if __name__ == "__main__":
+    main()
