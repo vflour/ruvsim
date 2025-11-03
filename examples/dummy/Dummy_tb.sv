@@ -24,9 +24,11 @@ module Dummy_tb(
         $display("Starting testbench");
         a = a + 10;
         #20 rst = 0;
+        // a should be 10
         $display("a = %d", a);
         a = a + 10;
         #100 $display("# 123");
+        // a should be 20
         $display("a = %d", a);
         $finish;
     end

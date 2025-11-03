@@ -1,14 +1,11 @@
+
 use super::sim_parser::Parser;
 
 use std::{
-    error::Error,
-    io::{BufReader, Read, Write},
-    process::{Child, ChildStderr, ChildStdin, Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    error::Error, io::{BufReader, Read, Write}, path::PathBuf, process::{Child, ChildStderr, ChildStdin, Command, Stdio}, thread, time::{Duration, Instant}
 };
 
-use super::sim_types::{LineType, ParsedLine, SimDriver, SimRadix, SimSignal, SimSignalDirection};
+use super::sim_types::{LineType, ParsedLine, SimDriver, SimRadix, SimSignal, SimSignalDirection, SimBreakpoint};
 
 pub struct Runner {
     parser: Parser,
@@ -18,7 +15,7 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn new(vsim_command: &str, args: Vec<&str>, cwd: &str) -> Self {
+    pub fn new(vsim_command: &str, args: &Vec<&str>, cwd: &str) -> Self {
         let mut child = Command::new(vsim_command)
             .arg("-c")
             .args(args)
@@ -36,6 +33,20 @@ impl Runner {
         let stdin = child.stdin.take().expect("Expected stdin");
         let stderr = child.stderr.take().expect("Expected stderr");
 
+        println!("Started simulator process with PID {}", child.id());
+        let wait_status = child.try_wait();
+        match wait_status {
+            Err(e) => panic!("Error checking simulator process status: {}", e),
+            Ok(Some(status)) => panic!(
+                "Simulator exited immediately with status {}. CMD: {} {}\n CWD: {}",
+                status,
+                vsim_command,
+                args.join(" "),
+                cwd
+            ),
+            _ => { /* Still running as expected */ }
+        }
+
         Runner {
             parser: parser,
             child: child,
@@ -44,33 +55,50 @@ impl Runner {
         }
     }
     pub fn wait_until_prompt_startup(&mut self) -> Result<(), Box<dyn Error>> {
-        self.wait_until_prompt(Duration::from_secs(2))
+        let result = self.wait_until_prompt(Duration::from_secs(2));
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                Err(format!(
+                    "Timeout waiting for prompt during startup. Is the simulator installed and accessible via PATH? Error: {}",
+                    e
+                )
+                .into())
+            }
+        }
     }
 
     pub fn wait_until_prompt(&mut self, timeout: Duration) -> Result<(), Box<dyn Error>> {
         let at_timeout = Instant::now() + timeout;
 
-        while at_timeout > Instant::now() {
+        let mut now = Instant::now();
+        while at_timeout > now {
             let next_line = self.parser.get_next_prompt()?;
             if next_line.is_some() {
-                break;
+                return Ok(());
             }
+            now = Instant::now();
             thread::sleep(Duration::from_millis(10));
         }
-        Ok(())
+        return Err("Timeout waiting for prompt".into());
     }
 
     pub fn send_command(&mut self, command: &str) -> Result<(), Box<dyn Error>> {
-        let mut stdin = &self.stdin;
-        stdin.write_all(command.as_bytes())?;
-        stdin.write_all(b"\n")?;
-        stdin.flush()?;
+        self.send_command_no_wait(command)?;
         self.wait_until_prompt(Duration::from_millis(10))?;
         Ok(())
     }
 
+    pub fn send_command_no_wait(&mut self, command: &str) -> Result<(), Box<dyn Error>> {
+        let mut stdin = &self.stdin;
+        stdin.write_all(command.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        Ok(())
+    }
+
     pub fn run_all(&mut self) -> Result<(), Box<dyn Error>> {
-        self.send_command("run -all")?;
+        self.send_command_no_wait("run -all")?;
         Ok(())
     }
 
@@ -109,10 +137,12 @@ impl Runner {
     }
 
     pub fn finish(&mut self) -> Result<(), Box<dyn Error>> {
+
         // Tell MS to terminate
         let mut stdin = &self.stdin;
         stdin.write_all(b"quit\n")?;
-        stdin.flush()?;
+        let _ = stdin.flush();
+
         // Wait a moment for process to exit
         thread::sleep(Duration::from_millis(100));
         let process_finished = self.child.try_wait();
@@ -166,14 +196,17 @@ impl Runner {
             SimSignalDirection::Input => "in",
             SimSignalDirection::Output => "out",
             SimSignalDirection::Inout => "inout",
+            _ => {
+                return Err("Invalid direction for get_net_paths".into());
+            }
         };
 
         let output = self.send_and_expect_result(
             &format!("puts \"NETS: [find nets -{} {}]\"", direction_arg, path),
-            |line| line.starts_with("NETS: "),
+            |line| line.starts_with("NETS:"),
         )?;
         // Ideally, you want the latest output only
-        let line = output.last().unwrap().content.trim_start_matches("NETS: ");
+        let line = output.last().unwrap().content.trim_start_matches("NETS:");
 
         let net_paths = line
             .split_whitespace()
@@ -241,4 +274,33 @@ impl Runner {
         signal.set(radix, examined_line);
         Ok(())
     }
+
+    pub fn restart(&mut self) -> Result<(), Box<dyn Error>> {
+        self.send_command("restart -f")?;
+        Ok(())
+    }
+
+    pub fn reset(&mut self) -> Result<(), Box<dyn Error>> {
+        self.send_command("reset -f")?;
+        Ok(())
+    }
+
+    pub fn create_breakpoint(&mut self, filename: &str, line_num: u32) -> Result<SimBreakpoint, Box<dyn Error>> {
+        let breakpoint = SimBreakpoint{
+            name: format!("{} {}", filename, line_num),
+            file: PathBuf::from(filename),
+            line_num,
+        };
+        self.send_command(&format!("bp {} {}", filename, line_num))?;
+        self.send_and_expect_result("bp", |line| line.contains(&breakpoint.name))?;
+        
+        Ok(breakpoint)
+    }
+
+    pub fn run_continue(&mut self) -> Result<(), Box<dyn Error>> {
+        self.send_command("run -continue")?;
+        Ok(())
+    }
+
+    // pub fn
 }

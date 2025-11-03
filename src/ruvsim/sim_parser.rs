@@ -8,6 +8,7 @@ use std::sync::mpsc::{self, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Debug)]
 enum ParserState {
@@ -79,7 +80,6 @@ impl Parser {
                         let parsed_lines = Parser::parse_chunk(&chunk);
                         for line in parsed_lines {
                             if tx.send(line.to_string()).is_err() {
-                                println!("line - {line}");
                                 break;
                             }
                         }
@@ -136,7 +136,8 @@ impl Parser {
     }
 
     pub fn get_next_prompt(&mut self) -> Result<Option<ParsedPrompt>, Box<dyn Error>> {
-        loop {
+        let timeout = Instant::now() + Duration::from_millis(100);
+        while Instant::now() < timeout {
             let has_new_line = self.get_next_line()?;
             if has_new_line {
                 if let Some(parsed_line) = self._parsed_buffer.last() {
@@ -149,6 +150,7 @@ impl Parser {
                 }
             }
         }
+        return Ok(None);
     }
 
     pub fn get_next_line(&mut self) -> Result<bool, Box<dyn Error>> {

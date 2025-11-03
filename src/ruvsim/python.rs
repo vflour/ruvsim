@@ -1,0 +1,456 @@
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use pyo3::{Bound, exceptions::PyRuntimeError, prelude::*, types::PyModule};
+use regex::Regex;
+
+use crate::sim_types::{SimBreakpoint, SimDriver, SimRadix, SimSignalDirection};
+
+use super::sim_compiler::{Compiler as RsCompiler, CompilerCommand};
+use super::{sim_runner::Runner, sim_types::SimSignal};
+use std::{cell::RefCell, path::Path};
+
+#[pyclass]
+pub struct PySignal {
+    inner: RefCell<SimSignal>,
+}
+
+#[pymethods]
+impl PySignal {
+    #[getter]
+    pub fn name(&self) -> String {
+        self.inner.borrow().name.clone()
+    }
+
+    #[getter]
+    pub fn value(&self) -> String {
+        self.inner
+            .borrow()
+            .value
+            .clone()
+            .unwrap_or((SimRadix::Binary, "X".to_string()))
+            .1
+    }
+
+    #[getter]
+    pub fn radix(&self) -> String {
+        match self.inner.borrow().value {
+            Some((radix, _)) => format!("{:?}", radix),
+            None => "Unknown".to_string(),
+        }
+    }
+
+    #[getter]
+    pub fn drivers(&self) -> Vec<PyDriver> {
+        self.inner
+            .borrow()
+            .drivers
+            .clone()
+            .into_iter()
+            .map(|d| PyDriver { inner: d })
+            .collect()
+    }
+
+    #[getter]
+    pub fn direction(&self) -> String {
+        match self.inner.borrow().direction {
+            SimSignalDirection::Input => "Input".to_string(),
+            SimSignalDirection::Output => "Output".to_string(),
+            SimSignalDirection::Inout => "Inout".to_string(),
+            SimSignalDirection::Unknown => "Unknown".to_string(),
+        }
+    }
+
+    #[getter]
+    pub fn left_bound(&self) -> Option<i32> {
+        self.inner.borrow().left_bound
+    }
+
+    #[getter]
+    pub fn right_bound(&self) -> Option<i32> {
+        self.inner.borrow().right_bound
+    }
+
+    pub fn numeric_value(&self) -> Option<u64> {
+        self.inner.borrow().get_numeric_value()
+    }
+}
+
+#[pyclass]
+pub struct PyDriver {
+    inner: SimDriver,
+}
+
+#[pymethods]
+impl PyDriver {
+    #[getter]
+    pub fn driver_type(&self) -> String {
+        format!("{:?}", self.inner.driver_type)
+    }
+    #[getter]
+    pub fn source(&self) -> String {
+        self.inner.source.clone()
+    }
+}
+
+#[pyclass]
+pub struct PyBreakpoint {
+    inner: SimBreakpoint,
+}
+
+#[pymethods]
+impl PyBreakpoint {
+    #[getter]
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+    #[getter]
+    pub fn file(&self) -> String {
+        self.inner.file.to_string_lossy().into_owned()
+    }
+    #[getter]
+    pub fn line_num(&self) -> u32 {
+        self.inner.line_num
+    }
+}
+
+fn parse_radix(radix: &str) -> PyResult<SimRadix> {
+    match radix.to_lowercase().as_str() {
+        "binary" | "bin" => Ok(SimRadix::Binary),
+        "octal" | "oct" => Ok(SimRadix::Octal),
+        "decimal" | "dec" => Ok(SimRadix::Decimal),
+        "hex" | "hexadecimal" => Ok(SimRadix::Hexadecimal),
+        "unsigned" | "uns" => Ok(SimRadix::Unsigned),
+        _ => Err(pyo3::exceptions::PyValueError::new_err("invalid radix")),
+    }
+}
+
+fn parse_direction(dir: &str) -> PyResult<SimSignalDirection> {
+    match dir.to_lowercase().as_str() {
+        "in" | "input" => Ok(SimSignalDirection::Input),
+        "out" | "output" => Ok(SimSignalDirection::Output),
+        "inout" => Ok(SimSignalDirection::Inout),
+        _ => Err(pyo3::exceptions::PyValueError::new_err("invalid direction")),
+    }
+}
+
+#[pyclass]
+pub struct PyRunner {
+    inner: std::cell::RefCell<Runner>,
+}
+
+#[pymethods]
+impl PyRunner {
+    #[new]
+    fn new(vsim_command: String, args: Vec<String>, cwd: String) -> PyResult<Self> {
+        // Runner::new expects &Vec<&str>; build a temporary vector of &str
+        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        let runner = Runner::new(&vsim_command, &arg_refs, &cwd);
+        Ok(Self {
+            inner: std::cell::RefCell::new(runner),
+        })
+    }
+
+    fn wait_until_prompt_ms(&self, timeout_ms: u64) -> PyResult<()> {
+        use std::time::Duration;
+        self.inner
+            .borrow_mut()
+            .wait_until_prompt(Duration::from_millis(timeout_ms))
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn send_command(&self, command: String) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .send_command(&command)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn run_for(&self, ns: u64) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_for(ns)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn get_directed_nets_at_path(
+        &self,
+        path: String,
+        direction: String,
+    ) -> PyResult<Vec<PySignal>> {
+        let dir = parse_direction(&direction)?;
+        self.inner
+            .borrow_mut()
+            .get_directed_nets_at_path(&path, dir)
+            .map(|nets| {
+                nets.into_iter()
+                    .map(|n| PySignal {
+                        inner: RefCell::new(n),
+                    })
+                    .collect()
+            })
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn get_all_nets_at_path(&self, path: String) -> PyResult<Vec<PySignal>> {
+        self.inner
+            .borrow_mut()
+            .get_all_nets_at_path(&path)
+            .map(|nets| {
+                nets.into_iter()
+                    .map(|n| PySignal {
+                        inner: RefCell::new(n),
+                    })
+                    .collect()
+            })
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn examine_net(&self, signal: &PySignal, radix: String) -> PyResult<()> {
+        let mut sig = signal.inner.borrow_mut();
+        let rdx = parse_radix(&radix)?;
+        self.inner
+            .borrow_mut()
+            .examine_net(&mut sig, rdx)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn restart(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .restart()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn reset(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .reset()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn create_breakpoint(&self, filename: String, line_num: u32) -> PyResult<PyBreakpoint> {
+        self.inner
+            .borrow_mut()
+            .create_breakpoint(&filename, line_num)
+            .map(|bp| PyBreakpoint { inner: bp })
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn run_continue(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_continue()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn get_log_matches_contains(&self, needle: String) -> PyResult<Vec<String>> {
+        let contents: Vec<String> = {
+            let mut runner = self.inner.borrow_mut();
+            let matches = runner
+                .get_log_matches(|line| line.contains(&needle))
+                .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+            matches.into_iter().map(|pl| pl.content.clone()).collect()
+        };
+        Ok(contents)
+    }
+
+    fn send_and_expect_contains(&self, command: String, needle: String) -> PyResult<Vec<String>> {
+        let contents: Vec<String> = {
+            let mut runner = self.inner.borrow_mut();
+            let matches = runner
+                .send_and_expect_result(&command, |line| line.contains(&needle))
+                .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+            matches.into_iter().map(|pl| pl.content.clone()).collect()
+        };
+        Ok(contents)
+    }
+
+    fn get_log_matches_regex(&self, pattern: String) -> PyResult<Vec<String>> {
+        let re = Regex::new(&pattern).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("invalid regex: {}", e))
+        })?;
+        let contents: Vec<String> = {
+            let mut runner = self.inner.borrow_mut();
+            let matches = runner
+                .get_log_matches(|line| re.is_match(line))
+                .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+            matches.into_iter().map(|pl| pl.content.clone()).collect()
+        };
+        Ok(contents)
+    }
+
+    fn send_and_expect_regex(&self, command: String, pattern: String) -> PyResult<Vec<String>> {
+        let re = Regex::new(&pattern).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("invalid regex: {}", e))
+        })?;
+        let contents: Vec<String> = {
+            let mut runner = self.inner.borrow_mut();
+            let matches = runner
+                .send_and_expect_result(&command, |line| re.is_match(line))
+                .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+            matches.into_iter().map(|pl| pl.content.clone()).collect()
+        };
+        Ok(contents)
+    }
+
+    #[pyo3(signature = (path=None))]
+    fn get_nets(&self, path: Option<String>) -> PyResult<Vec<PySignal>> {
+        let p = path.unwrap_or_else(|| "*".to_string());
+        self.inner
+            .borrow_mut()
+            .get_all_nets_at_path(&p)
+            .map(|nets| {
+                nets.into_iter()
+                    .map(|n| PySignal {
+                        inner: RefCell::new(n),
+                    })
+                    .collect()
+            })
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn wait_until_prompt_startup(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .wait_until_prompt_startup()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn run_all(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_all()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn run_next(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_next()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn finish(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .finish()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+}
+
+#[pyclass]
+pub struct PyCompiler {
+    inner: RefCell<Option<RsCompiler>>,
+    is_vlog: bool,
+}
+
+impl PyCompiler {
+    fn update(&self, f: impl FnOnce(RsCompiler) -> RsCompiler) -> PyResult<()> {
+        let mut slot = self.inner.borrow_mut();
+        if let Some(compiler) = slot.take() {
+            *slot = Some(f(compiler));
+            Ok(())
+        } else {
+            Err(PyRuntimeError::new_err("Compiler already used"))
+        }
+    }
+}
+
+#[pymethods]
+impl PyCompiler {
+    #[new]
+    fn new(work_dir: String, modelsim_path: String, command: String) -> PyResult<Self> {
+        let cmd = match command.to_lowercase().as_str() {
+            "vlog" => CompilerCommand::Vlog,
+            "vcom" => CompilerCommand::Vcom,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "command must be 'vlog' or 'vcom'",
+                ));
+            }
+        };
+        let is_vlog = matches!(cmd, CompilerCommand::Vlog);
+        let compiler = RsCompiler::new(&work_dir, &modelsim_path, cmd);
+        Ok(Self {
+            inner: RefCell::new(Some(compiler)),
+            is_vlog,
+        })
+    }
+
+    fn enable_system_verilog(&self) -> PyResult<()> {
+        if !self.is_vlog {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "SystemVerilog only supported with 'vlog'",
+            ));
+        }
+        self.update(|c| c.enable_system_verilog())
+    }
+
+    fn add_arg(&self, arg: String) -> PyResult<()> {
+        self.update(|c| c.add_arg(&arg))
+    }
+
+    fn add_optimization(&self, level: u8) -> PyResult<()> {
+        self.update(|c| c.add_optimization(level))
+    }
+
+    fn set_current_dir(&self, dir: String) -> PyResult<()> {
+        self.update(|c| c.set_current_dir(&dir))
+    }
+
+    fn add_dependency(&self, dep: String) -> PyResult<()> {
+        if !Path::new(&dep).exists() {
+            return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                "Dependency file does not exist: {}",
+                dep
+            )));
+        }
+        self.update(|c| c.add_dependency(&dep))
+    }
+
+    fn add_dependencies(&self, deps: Vec<String>) -> PyResult<()> {
+        for dep in &deps {
+            if !Path::new(dep).exists() {
+                return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                    "Dependency file does not exist: {}",
+                    dep
+                )));
+            }
+        }
+        self.update(|c| c.add_dependencies(&deps))
+    }
+
+    fn add_work_library(&self, lib: String) -> PyResult<()> {
+        self.update(|c| c.add_work_library(&lib))
+    }
+
+    fn set_work(&self, lib: String) -> PyResult<()> {
+        self.update(|c| c.set_work(&lib))
+    }
+
+    fn run(&self) -> PyResult<()> {
+        let mut slot = self.inner.borrow_mut();
+        let Some(compiler) = slot.take() else {
+            return Err(PyRuntimeError::new_err("Compiler already used"));
+        };
+        compiler
+            .run()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+}
+
+#[pyfunction]
+fn version() -> String {
+    format!("{}", env!("CARGO_PKG_VERSION"))
+}
+
+#[pymodule]
+fn ruvsim(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    m.add_function(pyo3::wrap_pyfunction_bound!(version, m)?)?;
+    m.add_class::<PyRunner>()?;
+    m.add_class::<PyCompiler>()?;
+    m.add_class::<PySignal>()?;
+    m.add_class::<PyDriver>()?;
+    m.add_class::<PyBreakpoint>()?;
+    Ok(())
+}

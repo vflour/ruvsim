@@ -1,17 +1,21 @@
 // Output lines
 
 use std::str::FromStr;
+use std::path::{PathBuf};
 
 // Regexes for each LineType:
 fn get_line_type_from_regex(line: &str) -> LineType {
     let prompt_re = regex::Regex::new(r"^(VSIM|Questa|ModelSim)( \d+)?>$").unwrap();
-    let exit_re = regex::Regex::new(r"^# End time: (.*), Elapsed time: (.*)$").unwrap();   
+    let exit_re = regex::Regex::new(r"^# End time: (.*), Elapsed time: (.*)$").unwrap();
+    let error_re = regex::Regex::new(r"^# \*\* Error:").unwrap();
     let tcl_comment_re = regex::Regex::new(r"^#.*$").unwrap();
 
     if prompt_re.is_match(line) {
         LineType::Prompt
     } else if exit_re.is_match(line) {
         LineType::Exit
+    } else if error_re.is_match(line) {
+        LineType::Error
     } else if tcl_comment_re.is_match(line) {
         LineType::Log
     } else {
@@ -25,7 +29,6 @@ pub enum PromptType {
     Questa,
     ModelSim,
     Unknown,
-
 }
 
 #[derive(Debug)]
@@ -34,6 +37,7 @@ pub enum LineType {
     Log,
     Output,
     Exit,
+    Error,
     Unknown,
 }
 
@@ -46,6 +50,7 @@ impl FromStr for LineType {
             "Prompt" => Ok(LineType::Prompt),
             "Output" => Ok(LineType::Output),
             "Unknown" => Ok(LineType::Unknown),
+            "Error" => Ok(LineType::Error),
             "Exit" => Ok(LineType::Exit),
             _ => Err(format!("Unknown LineType: {}", s)),
         }
@@ -65,6 +70,7 @@ fn get_prompt_type_from_line(line: &str) -> PromptType {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ParsedPrompt {
     prompt_type: PromptType,
     id: Option<u32>,
@@ -93,7 +99,6 @@ impl ParsedPrompt {
     }
 }
 
-
 #[derive(Debug)]
 pub struct ParsedLine {
     pub line_type: LineType,
@@ -120,11 +125,49 @@ impl ParsedLine {
 // VSim Object Types
 // Assume Verilog/SV only
 
+// -----------------------
+// Simulation run control/lifecycle types
+// -----------------------
+
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub enum SimTimeUnit {
+    Fs,
+    Ps,
+    Ns,
+    Us,
+    Ms,
+    S,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub struct SimTime {
+    pub value: u64,
+    pub unit: SimTimeUnit,
+}
+
+impl SimTime {
+    #[allow(dead_code)]
+    pub fn new(value: u64, unit: SimTimeUnit) -> Self {
+        Self { value, unit }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SimBreakpoint {
+    pub name: String,
+    pub file: PathBuf,
+    pub line_num: u32,
+}
+
+
 #[allow(non_camel_case_types)]
 pub enum SimObjectType {
     V__Function,
     V__ModuleInstance,
-    V_NamedFork,
+    V__NamedFork,
     V__NamedBegin,
     V__Net,
     V__Task,
@@ -145,8 +188,10 @@ pub enum SimSignalDirection {
     Input,
     Output,
     Inout,
+    Unknown,
 }
 
+#[derive(Copy, Clone)]
 pub enum SimSignalType {
     Wire,
     Reg,
@@ -159,6 +204,7 @@ pub enum SimSignalType {
     Other,
 }
 
+#[allow(dead_code)]
 pub struct SimObject {
     name: String,
     object_type: SimObjectType,
@@ -247,6 +293,8 @@ impl SimDriver {
     }
 }
 
+
+#[derive(Clone)]
 pub struct SimSignal {
     pub name: String,
     pub signal_type: SimSignalType,
@@ -256,6 +304,7 @@ pub struct SimSignal {
     pub drivers: Vec<SimDriver>,
     pub value: Option<(SimRadix, String)>,
 }
+
 
 impl SimSignal {
     pub fn from_describe_output(
@@ -303,16 +352,17 @@ impl SimSignal {
     }
 
     pub fn set(&mut self, radix: SimRadix, value: &str) {
-        self.value = Some((radix,value.to_string()));
-    }   
+        self.value = Some((radix, value.to_string()));
+    }
 
     pub fn get_numeric_value(&self) -> Option<u64> {
-        if let Some((radix,val_str)) = &self.value {
+        if let Some((radix, val_str)) = &self.value {
             // Remove any prefixes like "0b", "0x", etc.
-            let clean_str = val_str.trim_start_matches("b")
-                                   .trim_start_matches("o")
-                                   .trim_start_matches("x")
-                                   .to_lowercase();
+            let clean_str = val_str
+                .trim_start_matches("b")
+                .trim_start_matches("o")
+                .trim_start_matches("x")
+                .to_lowercase();
 
             // This gets tricky, because some values will contain 'x' or 'z' for unknown/high-impedance
             // Return None in these cases

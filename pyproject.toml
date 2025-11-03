@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "ruvsim"
+version = "0.1.0"
+description = "Python bindings for the ruvsim simulator runner"
+requires-python = ">=3.9"
+authors = [{ name = "ruvsim authors" }]
+readme = "README.md"
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: POSIX :: Linux",
+]
+
+[tool.maturin]
+bindings = "pyo3"
+manylinux = "2_39"
+# Build the library crate as a Python extension
+module-name = "ruvsim"

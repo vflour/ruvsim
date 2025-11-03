@@ -14,7 +14,7 @@ This fake supports a few commands used by the tests:
 
 import sys
 
-PROMPT_IDX = 0
+PROMPT_IDX = 1
 
 
 def prompt():
@@ -32,7 +32,7 @@ def handle_line(line: str):
     line = line.replace("puts \"# --RESULT-- [","")
     print(line)
 
-    if line.startswith("run "):
+    if line.startswith("run"):
         # simulate run completing
         sys.stdout.write(f"{prefix} run finished\n")
     elif line.startswith("add wave"):
@@ -63,6 +63,10 @@ def handle_line(line: str):
         sys.stdout.write(f"{prefix} 123\n")
     elif line.startswith("string map {\\n ;} [drivers"):
         sys.stdout.write(f"{prefix} Drivers for /Dummy/net1:;     0  : Net /Dummy/net1;      1    : Driver /Dummy/net1_driver2\n")
+    elif line.startswith("quit"):
+        sys.stdout.write("# End time \n")
+        sys.stdout.flush()
+        sys.exit(0)
     else:
         # Generic response
         sys.stdout.write("# OK\n")
