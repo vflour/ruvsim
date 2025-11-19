@@ -115,14 +115,13 @@ pub async fn list_nets(
     let session = sessions.get_mut(&id).ok_or(ApiError::NotFound)?;
     session.last_access = Instant::now();
 
-    let signal_direction: SimSignalDirection = q.parse_param()?;
-    let nets = if !matches!(signal_direction, SimSignalDirection::Unknown) {
-        session
-            .runner
-            .get_directed_nets_at_path(path, signal_direction)
-    } else {
-        session.runner.get_all_nets_at_path(path)
-    }
+    let parsed_signal_direction: SimSignalDirection = q.parse_param()?;
+    let signal_direction = match parsed_signal_direction {
+        SimSignalDirection::Unknown => None,
+        _ => Some(parsed_signal_direction),
+    };
+
+    let nets = session.runner.get_nets(path, signal_direction)
     .map_err(|e| ApiError::Internal(format!("Failed to query nets: {}", e)))?;
 
     // Redeclare, get mutable copy
@@ -245,8 +244,9 @@ pub async fn examine_net(
     // Obtain the net via query so we can reuse existing API logic
     let mut nets = session
         .runner
-        .get_all_nets_at_path(&req.path)
+        .get_nets(&req.path, None)
         .map_err(|e| ApiError::Internal(format!("net query failed: {}", e)))?;
+
     if nets.is_empty() {
         return Err(ApiError::BadRequest(format!(
             "No nets found at path {}",

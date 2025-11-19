@@ -7,7 +7,7 @@ name = "ruvsim"
 version = "0.1.0"
 description = "Python bindings for the ruvsim simulator runner"
 requires-python = ">=3.9"
-authors = [{ name = "ruvsim authors" }]
+authors = [{ name = "vflour" }]
 readme = "README.md"
 classifiers = [
   "Programming Language :: Rust",
@@ -18,6 +18,9 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "twine>=6.2.0",
 ]
 
 [tool.maturin]

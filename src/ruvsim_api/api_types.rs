@@ -157,8 +157,8 @@ impl ApiResponseFormat<NetDto> for SimSignal {
         NetDto {
             name: self.name.clone(),
             direction: self.direction.format_field(),
-            left_bound: self.left_bound,
-            right_bound: self.right_bound,
+            left_bound: self.bounds.left,
+            right_bound: self.bounds.right,
             drivers: self.drivers.format_field(),
             value: Some(value.1),
             radix: Some(value.0),
@@ -264,8 +264,8 @@ pub struct DriverDto {
 pub struct NetDto {
     pub name: String,
     pub direction: String,
-    pub left_bound: Option<i32>,
-    pub right_bound: Option<i32>,
+    pub left_bound: i32,
+    pub right_bound: i32,
     pub drivers: Vec<DriverDto>,
     pub value: Option<String>,
     pub radix: Option<String>,

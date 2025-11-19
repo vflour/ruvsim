@@ -1,4 +1,5 @@
 import os
+import time
 from ruvsim import PyRunner, PyCompiler
 
 build_dir = "build/dummy"
@@ -31,6 +32,7 @@ r = PyRunner(
 )
 # Then run it to completion
 r.wait_until_prompt_startup()
+start = time.perf_counter()
 r.send_command("log -r /*")
 r.run_all()
 
@@ -38,4 +40,9 @@ r.get_log_matches_regex('^Starting testbench')
 r.get_log_matches_regex('^# 123')
 r.get_log_matches_regex('^a = 10')
 r.get_log_matches_regex('^a = 20')
+
+end = time.perf_counter()
+print(f"Simulation time: {end - start:.4f} seconds")
 print("Dummy_tb ran successfully.")
+
+r.finish()

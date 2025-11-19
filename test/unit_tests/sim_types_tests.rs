@@ -66,8 +66,8 @@ fn sim_signal_from_describe_output_parses_type_and_bounds() {
         SimSignalType::Reg => {}
         _ => panic!("Expected Reg signal type"),
     }
-    assert_eq!(sig.left_bound, Some(7));
-    assert_eq!(sig.right_bound, Some(0));
+    assert_eq!(sig.bounds.left, 7);
+    assert_eq!(sig.bounds.right, 0);
 
     let drivers2: Vec<SimDriver> = Vec::new();
     let out2 = "Wire [15:8] more info";
@@ -77,6 +77,6 @@ fn sim_signal_from_describe_output_parses_type_and_bounds() {
         SimSignalType::Wire => {}
         _ => panic!("Expected Wire signal type"),
     }
-    assert_eq!(sig2.left_bound, Some(15));
-    assert_eq!(sig2.right_bound, Some(8));
+    assert_eq!(sig2.bounds.left, 15);
+    assert_eq!(sig2.bounds.right, 8);
 }

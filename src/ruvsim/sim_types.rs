@@ -1,13 +1,13 @@
 // Output lines
-
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::path::{PathBuf};
+use num_traits::Num;
 
 // Regexes for each LineType:
 fn get_line_type_from_regex(line: &str) -> LineType {
     let prompt_re = regex::Regex::new(r"^(VSIM|Questa|ModelSim)( \d+)?>$").unwrap();
     let exit_re = regex::Regex::new(r"^# End time: (.*), Elapsed time: (.*)$").unwrap();
-    let error_re = regex::Regex::new(r"^# \*\* Error:").unwrap();
+    let error_re = regex::Regex::new(r"^# (\*\* Error:|wrong # args: should be).*$").unwrap();
     let tcl_comment_re = regex::Regex::new(r"^#.*$").unwrap();
 
     if prompt_re.is_match(line) {
@@ -31,14 +31,14 @@ pub enum PromptType {
     Unknown,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum LineType {
-    Prompt,
+    Unknown,
     Log,
     Output,
+    Prompt,
     Exit,
     Error,
-    Unknown,
 }
 
 impl FromStr for LineType {
@@ -72,13 +72,13 @@ fn get_prompt_type_from_line(line: &str) -> PromptType {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ParsedPrompt {
-    prompt_type: PromptType,
-    id: Option<u32>,
+    pub line: String,
+    pub suffix: String,
 }
 
 impl ParsedPrompt {
     fn new(line: &str) -> Self {
-        let prompt_type = get_prompt_type_from_line(line);
+        let _prompt_type = get_prompt_type_from_line(line);
         let id = {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
@@ -93,16 +93,16 @@ impl ParsedPrompt {
         };
 
         ParsedPrompt {
-            prompt_type: prompt_type,
-            id: id,
+            line: line.to_string(),
+            suffix: id.map_or(String::new(), |id| id.to_string()),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ParsedLine {
-    pub line_type: LineType,
     pub content: String,
+    pub line_type: LineType,
     pub prompt_info: Option<ParsedPrompt>,
 }
 
@@ -161,7 +161,6 @@ pub struct SimBreakpoint {
     pub file: PathBuf,
     pub line_num: u32,
 }
-
 
 #[allow(non_camel_case_types)]
 pub enum SimObjectType {
@@ -293,18 +292,73 @@ impl SimDriver {
     }
 }
 
+#[derive(Clone)]
+pub struct SimMemory {
+    pub name: String,
+    pub size: SimSignalBounds,
+    pub width: usize,
+}
+
+impl SimMemory {
+    pub fn from_mem_list_output(output: &str) -> Option<Self> {
+        // Example line:
+        // # Verilog: /Mem_tb/mem [0:63] x 8 w
+        let mem_re = regex::Regex::new(r"# Verilog:\s+(\S+)\s+\[(\d+:\d+)\]\s+x\s+(\d+)\s+w")
+            .expect("Failed to compile regex");
+
+        if let Some(captures) = mem_re.captures(output) {
+            let name = captures.get(1).unwrap().as_str().to_string();
+            let bounds_str = captures.get(2).unwrap().as_str();
+            let width_str = captures.get(3).unwrap().as_str();
+
+            if let Some(bounds) = SimSignalBounds::from_str(bounds_str) {
+                if let Ok(width) = width_str.parse::<usize>() {
+                    return Some(SimMemory {
+                        name,
+                        size: bounds,
+                        width,
+                    });
+                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct SimSignalBounds {
+    pub left: i32,
+    pub right: i32,
+}
+
+impl SimSignalBounds {
+    pub fn from_str(bounds_str: &str) -> Option<Self> {
+        let parts: Vec<&str> = bounds_str
+            .trim_matches(&['[', ']'][..])
+            .split(':')
+            .collect();
+        if parts.len() == 2 {
+            if let (Ok(left), Ok(right)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                return Some(SimSignalBounds { left, right });
+            }
+        }
+        None
+    }
+
+    pub fn width(&self) -> usize {
+        (self.left - self.right + 1) as usize
+    }
+}
 
 #[derive(Clone)]
 pub struct SimSignal {
     pub name: String,
     pub signal_type: SimSignalType,
     pub direction: SimSignalDirection,
-    pub left_bound: Option<i32>,  // in bits
-    pub right_bound: Option<i32>, // idem
+    pub bounds: SimSignalBounds,
     pub drivers: Vec<SimDriver>,
     pub value: Option<(SimRadix, String)>,
 }
-
 
 impl SimSignal {
     pub fn from_describe_output(
@@ -317,8 +371,7 @@ impl SimSignal {
             .expect("Failed to compile regex");
 
         let mut signal_type = SimSignalType::Other;
-        let mut left_bound = None;
-        let mut right_bound = None;
+        let mut bounds: SimSignalBounds = SimSignalBounds { left: 0, right: 0 };
 
         if let Some(captures) = examine_re.captures(output) {
             let type_str = captures.get(1).unwrap().as_str();
@@ -330,13 +383,9 @@ impl SimSignal {
                 "Logic" => SimSignalType::Logic,
                 _ => SimSignalType::Other,
             };
-
-            if let Some(bounds) = captures.get(2) {
-                let bounds_str = bounds.as_str().trim_matches(&['[', ']'][..]);
-                let parts: Vec<&str> = bounds_str.split(':').collect();
-                if parts.len() == 2 {
-                    left_bound = parts[0].parse::<i32>().ok();
-                    right_bound = parts[1].parse::<i32>().ok();
+            if let Some(bounds_match) = captures.get(2) {
+                if let Some(b) = SimSignalBounds::from_str(bounds_match.as_str()) {
+                    bounds = b;
                 }
             }
         }
@@ -344,8 +393,7 @@ impl SimSignal {
             name: path.to_string(),
             signal_type,
             direction,
-            left_bound,
-            right_bound,
+            bounds,
             drivers,
             value: None,
         }
@@ -355,31 +403,80 @@ impl SimSignal {
         self.value = Some((radix, value.to_string()));
     }
 
-    pub fn get_numeric_value(&self) -> Option<u64> {
-        if let Some((radix, val_str)) = &self.value {
-            // Remove any prefixes like "0b", "0x", etc.
-            let clean_str = val_str
-                .trim_start_matches("b")
-                .trim_start_matches("o")
-                .trim_start_matches("x")
-                .to_lowercase();
+    fn clean_value_str(&self) -> Option<String> {
+        if let Some((_, val_str)) = &self.value {
+            // Remove any prefixes like "0'b", "0'd", etc.
+            let clean_str = match val_str.splitn(2, '\'').nth(1) {
+                Some(after_quote) => {
+                    // drop a single base char if present (b/o/d/x, case-insensitive), then lowercase
+                    let rest = after_quote.trim_start_matches(|c: char| {
+                        matches!(c, 'b' | 'B' | 'o' | 'O' | 'x' | 'X' | 'd' | 'D')
+                    }).to_lowercase();
 
-            // This gets tricky, because some values will contain 'x' or 'z' for unknown/high-impedance
-            // Return None in these cases
-            if clean_str.contains('x') || clean_str.contains('z') {
-                return None;
-            }
+                    // This gets tricky, because some values will contain 'x' or 'z' for unknown/high-impedance
+                    // Return None in these cases
+                    if rest.contains('x') || rest.contains('z') {
+                        return None;
+                    }
 
+                    rest
+                }
+                None => val_str.to_lowercase(),
+            };
+            Some(clean_str)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_numeric_value<T>(&self) -> Option<T>
+    where T: Num {
+        // Remove any prefixes like "0'b", "0'd", etc.
+        if let Some(clean_str) = self.clean_value_str() {
+            let (radix, _val_str) = self.value.as_ref().unwrap();
             // Determine radix based on original string
             match radix {
-                SimRadix::Binary => return u64::from_str_radix(&clean_str, 2).ok(),
-                SimRadix::Octal => return u64::from_str_radix(&clean_str, 8).ok(),
-                SimRadix::Decimal => return u64::from_str_radix(&clean_str, 10).ok(),
-                SimRadix::Hexadecimal => return u64::from_str_radix(&clean_str, 16).ok(),
-                SimRadix::Unsigned => return u64::from_str_radix(&clean_str, 10).ok(),
+                SimRadix::Binary => return T::from_str_radix(&clean_str, 2).ok(),
+                SimRadix::Octal => return T::from_str_radix(&clean_str, 8).ok(),
+                SimRadix::Decimal => return T::from_str_radix(&clean_str, 10).ok(),
+                SimRadix::Hexadecimal => return T::from_str_radix(&clean_str, 16).ok(),
+                SimRadix::Unsigned => return T::from_str_radix(&clean_str, 10).ok(),
                 SimRadix::Unknown => return None,
             }
         } else {
+            None
+        }
+    }
+
+    pub fn get_bytes_value(&self) -> Option<Vec<u8>> {
+        if let Some(clean_str) = self.clean_value_str() {
+            let (radix, _val_str) = self.value.as_ref().unwrap();
+            // Get radix and parse the value string
+            match radix {
+                SimRadix::Binary => {
+                    let num = u128::from_str_radix(&clean_str, 2).ok()?;
+                    Some(num.to_le_bytes().to_vec())
+                }
+                SimRadix::Octal => {
+                    let num = u128::from_str_radix(&clean_str, 8).ok()?;
+                    Some(num.to_le_bytes().to_vec())
+                }
+                SimRadix::Decimal => {
+                    let num = u128::from_str_radix(&clean_str, 10).ok()?;
+                    Some(num.to_le_bytes().to_vec())
+                }
+                SimRadix::Hexadecimal => {
+                    let num = u128::from_str_radix(&clean_str, 16).ok()?;
+                    Some(num.to_le_bytes().to_vec())
+                }
+                SimRadix::Unsigned => {
+                    let num = u128::from_str_radix(&clean_str, 10).ok()?;
+                    Some(num.to_le_bytes().to_vec())
+                }
+                SimRadix::Unknown => None,
+            }
+        }
+        else {
             None
         }
     }

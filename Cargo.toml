@@ -41,6 +41,7 @@ log = "0.4.28"
 env_logger = "0.10"
 # PyO3 for Python bindings using the stable ABI for Python >= 3.9
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+num-traits = "0.2.19"
 
 [dev-dependencies]
 tower = "0.5"

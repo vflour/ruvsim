@@ -3,13 +3,16 @@
 use pyo3::{Bound, exceptions::PyRuntimeError, prelude::*, types::PyModule};
 use regex::Regex;
 
-use crate::sim_types::{SimBreakpoint, SimDriver, SimRadix, SimSignalDirection};
+use crate::sim_types::{
+    ParsedLine, SimBreakpoint, SimDriver, SimMemory, SimRadix, SimSignalDirection,
+};
 
 use super::sim_compiler::{Compiler as RsCompiler, CompilerCommand};
 use super::{sim_runner::Runner, sim_types::SimSignal};
 use std::{cell::RefCell, path::Path};
 
 #[pyclass]
+#[derive(Clone)]
 pub struct PySignal {
     inner: RefCell<SimSignal>,
 }
@@ -20,7 +23,6 @@ impl PySignal {
     pub fn name(&self) -> String {
         self.inner.borrow().name.clone()
     }
-
     #[getter]
     pub fn value(&self) -> String {
         self.inner
@@ -30,7 +32,6 @@ impl PySignal {
             .unwrap_or((SimRadix::Binary, "X".to_string()))
             .1
     }
-
     #[getter]
     pub fn radix(&self) -> String {
         match self.inner.borrow().value {
@@ -38,7 +39,6 @@ impl PySignal {
             None => "Unknown".to_string(),
         }
     }
-
     #[getter]
     pub fn drivers(&self) -> Vec<PyDriver> {
         self.inner
@@ -49,7 +49,6 @@ impl PySignal {
             .map(|d| PyDriver { inner: d })
             .collect()
     }
-
     #[getter]
     pub fn direction(&self) -> String {
         match self.inner.borrow().direction {
@@ -59,17 +58,14 @@ impl PySignal {
             SimSignalDirection::Unknown => "Unknown".to_string(),
         }
     }
-
     #[getter]
-    pub fn left_bound(&self) -> Option<i32> {
-        self.inner.borrow().left_bound
+    pub fn left_bound(&self) -> i32 {
+        self.inner.borrow().bounds.left
     }
-
     #[getter]
-    pub fn right_bound(&self) -> Option<i32> {
-        self.inner.borrow().right_bound
+    pub fn right_bound(&self) -> i32 {
+        self.inner.borrow().bounds.right
     }
-
     pub fn numeric_value(&self) -> Option<u64> {
         self.inner.borrow().get_numeric_value()
     }
@@ -113,6 +109,44 @@ impl PyBreakpoint {
     }
 }
 
+#[pyclass]
+pub struct PyMemory {
+    inner: SimMemory,
+}
+
+#[pymethods]
+impl PyMemory {
+    #[getter]
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+    #[getter]
+    pub fn left_bound(&self) -> i32 {
+        self.inner.size.left
+    }
+    #[getter]
+    pub fn right_bound(&self) -> i32 {
+        self.inner.size.right
+    }
+}
+
+#[pyclass]
+pub struct PyParsedLine {
+    inner: ParsedLine,
+}
+
+#[pymethods]
+impl PyParsedLine {
+    #[getter]
+    pub fn content(&self) -> String {
+        self.inner.content.clone()
+    }
+    #[getter]
+    pub fn line_type(&self) -> String {
+        format!("{:?}", self.inner.line_type)
+    }
+}
+
 fn parse_radix(radix: &str) -> PyResult<SimRadix> {
     match radix.to_lowercase().as_str() {
         "binary" | "bin" => Ok(SimRadix::Binary),
@@ -142,7 +176,6 @@ pub struct PyRunner {
 impl PyRunner {
     #[new]
     fn new(vsim_command: String, args: Vec<String>, cwd: String) -> PyResult<Self> {
-        // Runner::new expects &Vec<&str>; build a temporary vector of &str
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         let runner = Runner::new(&vsim_command, &arg_refs, &cwd);
         Ok(Self {
@@ -158,10 +191,24 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
+    fn wait_until_prompt_startup(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .wait_until_prompt_startup()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
     fn send_command(&self, command: String) -> PyResult<()> {
         self.inner
             .borrow_mut()
             .send_command(&command)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn send_command_no_wait(&self, command: String) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .send_command_no_wait(&command)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
@@ -172,29 +219,60 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn get_directed_nets_at_path(
-        &self,
-        path: String,
-        direction: String,
-    ) -> PyResult<Vec<PySignal>> {
-        let dir = parse_direction(&direction)?;
+    fn run_all(&self) -> PyResult<()> {
         self.inner
             .borrow_mut()
-            .get_directed_nets_at_path(&path, dir)
-            .map(|nets| {
-                nets.into_iter()
-                    .map(|n| PySignal {
-                        inner: RefCell::new(n),
-                    })
-                    .collect()
-            })
+            .run_all()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+    fn run_next(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_next()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+    fn run_continue(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .run_continue()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+    fn finish(&self) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .finish()
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn get_all_nets_at_path(&self, path: String) -> PyResult<Vec<PySignal>> {
+    fn get_time(&self) -> PyResult<String> {
         self.inner
             .borrow_mut()
-            .get_all_nets_at_path(&path)
+            .get_time()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+    fn get_status(&self) -> PyResult<String> {
+        self.inner
+            .borrow_mut()
+            .get_status()
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    #[pyo3(signature = (path, direction=None))]
+    fn get_net(&self, path: &str, direction: Option<String>) -> PyResult<Option<PySignal>> {
+        Ok(self.get_nets(Some(path), direction)?.first().cloned())
+    }
+
+    #[pyo3(signature = (path=None, direction=None))]
+    fn get_nets(&self, path: Option<&str>, direction: Option<String>) -> PyResult<Vec<PySignal>> {
+        let p = path.unwrap_or_else(|| "*");
+        let dir = match direction {
+            Some(d) => Some(parse_direction(&d)?),
+            None => None,
+        };
+
+        self.inner
+            .borrow_mut()
+            .get_nets(&p, dir)
             .map(|nets| {
                 nets.into_iter()
                     .map(|n| PySignal {
@@ -214,13 +292,92 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
+    fn examine_nets_batch(&self, signals: Vec<Bound<'_, PySignal>>, radix: String) -> PyResult<()> {
+        let rdx = parse_radix(&radix)?;
+        let mut inner_signals: Vec<SimSignal> = signals
+            .iter()
+            .map(|s| s.borrow().inner.borrow().clone())
+            .collect();
+        self.inner
+            .borrow_mut()
+            .examine_nets_batch(&mut inner_signals, rdx)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+        for (py_sig, inner_sig) in signals.iter().zip(inner_signals.iter()) {
+            py_sig.borrow().inner.borrow_mut().value = inner_sig.value.clone();
+        }
+        Ok(())
+    }
+
+    fn examine_net_int_64(&self, signal: &PySignal) -> PyResult<u64> {
+        let mut sig = signal.inner.borrow_mut();
+        self.inner
+            .borrow_mut()
+            .examine_net(&mut sig, SimRadix::Binary)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+        sig.get_numeric_value::<u64>()
+            .ok_or_else(|| PyRuntimeError::new_err("Unable to convert signal to numeric value"))
+    }
+
+    fn examine_net_int_128(&self, signal: &PySignal) -> PyResult<u128> {
+        let mut sig = signal.inner.borrow_mut();
+        self.inner
+            .borrow_mut()
+            .examine_net(&mut sig, SimRadix::Binary)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
+        sig.get_numeric_value::<u128>()
+            .ok_or_else(|| PyRuntimeError::new_err("Unable to convert signal to numeric value"))
+    }
+
+    fn force_net(&self, signal: &PySignal, value: String, radix: String) -> PyResult<()> {
+        let mut sig = signal.inner.borrow_mut();
+        let rdx = parse_radix(&radix)?;
+        self.inner
+            .borrow_mut()
+            .force_signal(&mut sig, &value, rdx)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn force_nets_batch(
+        &self,
+        signals: Vec<Bound<'_, PySignal>>,
+        values: Vec<String>,
+        radices: Vec<String>,
+    ) -> PyResult<()> {
+        if signals.len() != values.len() || signals.len() != radices.len() {
+            return Err(PyRuntimeError::new_err(
+                "signals, values, and radices must have the same length",
+            ));
+        }
+        let inner_signals: Vec<SimSignal> = signals
+            .iter()
+            .map(|s| s.borrow().inner.borrow().clone())
+            .collect();
+        let parsed_values: PyResult<Vec<(SimRadix, &str)>> = radices
+            .iter()
+            .zip(values.iter())
+            .map(|(radix_str, val)| parse_radix(radix_str).map(|rdx| (rdx, val.as_str())))
+            .collect();
+        let parsed_values = parsed_values?;
+        self.inner
+            .borrow_mut()
+            .force_signals_batch(&inner_signals, &parsed_values)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn force_net_update(&self, signal: &PySignal) -> PyResult<()> {
+        let sig = signal.inner.borrow();
+        self.inner
+            .borrow_mut()
+            .force_signal_update(&sig)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
     fn restart(&self) -> PyResult<()> {
         self.inner
             .borrow_mut()
             .restart()
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
-
     fn reset(&self) -> PyResult<()> {
         self.inner
             .borrow_mut()
@@ -235,11 +392,21 @@ impl PyRunner {
             .map(|bp| PyBreakpoint { inner: bp })
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
-
-    fn run_continue(&self) -> PyResult<()> {
+    fn list_breakpoints(&self) -> PyResult<Vec<PyBreakpoint>> {
         self.inner
             .borrow_mut()
-            .run_continue()
+            .list_breakpoints()
+            .map(|bps| {
+                bps.into_iter()
+                    .map(|bp| PyBreakpoint { inner: bp })
+                    .collect()
+            })
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+    fn delete_breakpoint(&self, file: String, line_num: u32) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .delete_breakpoint(&file, line_num)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
@@ -253,7 +420,6 @@ impl PyRunner {
         };
         Ok(contents)
     }
-
     fn send_and_expect_contains(&self, command: String, needle: String) -> PyResult<Vec<String>> {
         let contents: Vec<String> = {
             let mut runner = self.inner.borrow_mut();
@@ -264,7 +430,6 @@ impl PyRunner {
         };
         Ok(contents)
     }
-
     fn get_log_matches_regex(&self, pattern: String) -> PyResult<Vec<String>> {
         let re = Regex::new(&pattern).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("invalid regex: {}", e))
@@ -278,7 +443,6 @@ impl PyRunner {
         };
         Ok(contents)
     }
-
     fn send_and_expect_regex(&self, command: String, pattern: String) -> PyResult<Vec<String>> {
         let re = Regex::new(&pattern).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("invalid regex: {}", e))
@@ -293,47 +457,32 @@ impl PyRunner {
         Ok(contents)
     }
 
-    #[pyo3(signature = (path=None))]
-    fn get_nets(&self, path: Option<String>) -> PyResult<Vec<PySignal>> {
-        let p = path.unwrap_or_else(|| "*".to_string());
-        self.inner
-            .borrow_mut()
-            .get_all_nets_at_path(&p)
-            .map(|nets| {
-                nets.into_iter()
-                    .map(|n| PySignal {
-                        inner: RefCell::new(n),
-                    })
-                    .collect()
-            })
-            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    fn parsed_buffer(&self) -> PyResult<Vec<PyParsedLine>> {
+        Ok(self
+            .inner
+            .borrow()
+            .parsed_buffer()
+            .iter()
+            .cloned()
+            .map(|pl| PyParsedLine { inner: pl })
+            .collect())
+    }
+    fn latest_buffer(&self) -> PyResult<Vec<PyParsedLine>> {
+        Ok(self
+            .inner
+            .borrow()
+            .latest_buffer()
+            .iter()
+            .cloned()
+            .map(|pl| PyParsedLine { inner: pl.clone() })
+            .collect())
     }
 
-    fn wait_until_prompt_startup(&self) -> PyResult<()> {
+    fn list_mems(&self) -> PyResult<Vec<PyMemory>> {
         self.inner
             .borrow_mut()
-            .wait_until_prompt_startup()
-            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
-    }
-
-    fn run_all(&self) -> PyResult<()> {
-        self.inner
-            .borrow_mut()
-            .run_all()
-            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
-    }
-
-    fn run_next(&self) -> PyResult<()> {
-        self.inner
-            .borrow_mut()
-            .run_next()
-            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
-    }
-
-    fn finish(&self) -> PyResult<()> {
-        self.inner
-            .borrow_mut()
-            .finish()
+            .list_mems()
+            .map(|mems| mems.into_iter().map(|m| PyMemory { inner: m }).collect())
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 }
@@ -376,7 +525,6 @@ impl PyCompiler {
             is_vlog,
         })
     }
-
     fn enable_system_verilog(&self) -> PyResult<()> {
         if !self.is_vlog {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -385,19 +533,15 @@ impl PyCompiler {
         }
         self.update(|c| c.enable_system_verilog())
     }
-
     fn add_arg(&self, arg: String) -> PyResult<()> {
         self.update(|c| c.add_arg(&arg))
     }
-
     fn add_optimization(&self, level: u8) -> PyResult<()> {
         self.update(|c| c.add_optimization(level))
     }
-
     fn set_current_dir(&self, dir: String) -> PyResult<()> {
         self.update(|c| c.set_current_dir(&dir))
     }
-
     fn add_dependency(&self, dep: String) -> PyResult<()> {
         if !Path::new(&dep).exists() {
             return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
@@ -407,7 +551,6 @@ impl PyCompiler {
         }
         self.update(|c| c.add_dependency(&dep))
     }
-
     fn add_dependencies(&self, deps: Vec<String>) -> PyResult<()> {
         for dep in &deps {
             if !Path::new(dep).exists() {
@@ -419,15 +562,12 @@ impl PyCompiler {
         }
         self.update(|c| c.add_dependencies(&deps))
     }
-
     fn add_work_library(&self, lib: String) -> PyResult<()> {
         self.update(|c| c.add_work_library(&lib))
     }
-
     fn set_work(&self, lib: String) -> PyResult<()> {
         self.update(|c| c.set_work(&lib))
     }
-
     fn run(&self) -> PyResult<()> {
         let mut slot = self.inner.borrow_mut();
         let Some(compiler) = slot.take() else {
@@ -452,5 +592,7 @@ fn ruvsim(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PySignal>()?;
     m.add_class::<PyDriver>()?;
     m.add_class::<PyBreakpoint>()?;
+    m.add_class::<PyMemory>()?;
+    m.add_class::<PyParsedLine>()?;
     Ok(())
 }

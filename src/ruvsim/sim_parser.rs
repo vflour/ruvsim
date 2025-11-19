@@ -30,6 +30,9 @@ pub struct Parser {
 
     #[getter(rename = "parsed_buffer")]
     _parsed_buffer: Vec<ParsedLine>,
+
+    #[getter(rename = "latest_buffer")]
+    _latest_buffer: Vec<usize>,
 }
 
 const MAX_RETRIES: i32 = 5;
@@ -93,6 +96,7 @@ impl Parser {
             rx: rx,
             state: parser_state,
             _parsed_buffer: Vec::new(),
+            _latest_buffer: Vec::new(),
         }
     }
 
@@ -132,11 +136,13 @@ impl Parser {
             rx: rx,
             state: parser_state,
             _parsed_buffer: Vec::new(),
+            _latest_buffer: Vec::new(),
         }
     }
 
     pub fn get_next_prompt(&mut self) -> Result<Option<ParsedPrompt>, Box<dyn Error>> {
         let timeout = Instant::now() + Duration::from_millis(100);
+        self._latest_buffer.clear();
         while Instant::now() < timeout {
             let has_new_line = self.get_next_line()?;
             if has_new_line {
@@ -161,10 +167,13 @@ impl Parser {
                     // Received a line from parser thread; pass to parsing logic
                     let parsed_line = self.parse(&line);
                     self._parsed_buffer.push(parsed_line);
+                    let idx = self._parsed_buffer.len() - 1;
+                    self._latest_buffer.push(idx);
 
                     return Ok(true);
                 }
-                Err(_) => {
+                _ => {
+                    // No data yet, retry
                     continue;
                 }
             }

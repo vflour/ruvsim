@@ -179,6 +179,82 @@ class PyRunner:
             ValueError: If radix is invalid
         """
         ...
+
+    def examine_nets_batch(self, signals: List[PySignal], radix: str) -> None:
+        """
+        Examine multiple signals in a single batch operation for improved performance.
+        
+        This method is significantly faster than calling examine_net() individually 
+        for each signal, as it sends all examine commands at once and parses the 
+        results in a single operation.
+        
+        Args:
+            signals: List of signals to examine
+            radix: The radix to use for all signals ("binary"/"bin", "octal"/"oct", 
+                   "decimal"/"dec", "hex"/"hexadecimal", or "unsigned"/"uns")
+        
+        Raises:
+            RuntimeError: If examination fails
+            ValueError: If radix is invalid
+        
+        Example:
+            >>> signals = runner.get_all_nets_at_path("/top/*")
+            >>> runner.examine_nets_batch(signals, "binary")
+            >>> print(signals[0].value)
+        """
+        ...
+
+    def examine_net_int(self, signal: PySignal) -> int:
+        """
+        Examine a signal and return its numeric value as an integer.
+        
+        Args:
+            signal: The signal to examine
+        Returns:
+            The numeric value as an integer
+        Raises:
+            RuntimeError: If examination fails
+        """
+        ...
+
+    def force_net(self, signal: PySignal, value: str, radix: str) -> None:
+        """
+        Force a signal to a specific value in the simulation.
+        
+        Args:
+            signal_name: The hierarchical path of the signal to force
+            value: The value to force (e.g., "1", "0", "16#FF", "2#1010")
+            radix: The radix of the value ("binary"/"bin", "octal"/"oct", "decimal"/"dec", 
+                   "hex"/"hexadecimal", or "unsigned"/"uns")
+        
+        Raises:
+            RuntimeError: If force command fails
+        """
+        ...
+
+    def force_nets_batch(self, signals: List[PySignal], values: List[str], radices: List[str]) -> None:
+        """
+        Force multiple signals to specific values in a single batch operation.
+        
+        This method is significantly faster than calling force_net() individually 
+        for each signal, as it sends all force commands at once.
+        
+        Args:
+            signals: List of signals to force
+            values: List of values to force (same length as signals)
+            radices: List of radices for each value (same length as signals)
+                     Each radix can be "binary"/"bin", "octal"/"oct", "decimal"/"dec", 
+                     "hex"/"hexadecimal", or "unsigned"/"uns"
+        
+        Raises:
+            RuntimeError: If force command fails or if lists have different lengths
+            ValueError: If any radix is invalid
+        
+        Example:
+            >>> signals = runner.get_all_nets_at_path("/top/clk")
+            >>> runner.force_nets_batch(signals[:3], ["1", "0", "1"], ["binary", "binary", "binary"])
+        """
+        ...
     
     def restart(self) -> None:
         """
@@ -213,7 +289,7 @@ class PyRunner:
             RuntimeError: If breakpoint creation fails
         """
         ...
-    
+
     def run_continue(self) -> None:
         """
         Continue running the simulation (typically after hitting a breakpoint).
