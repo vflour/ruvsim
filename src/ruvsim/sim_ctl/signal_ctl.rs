@@ -1,7 +1,4 @@
-use std::error::Error;
-
-use super::super::sim_runner::Runner;
-use super::super::sim_types::{SimDriver, SimRadix, SimSignal, SimSignalDirection};
+use super::super::sim_types::{SimDriver, SimRadix, SimSignal, SimSignalDirection, SimError, LineType};
 use super::command_ctl::CommandCtl;
 
 pub struct SignalCtl {
@@ -26,7 +23,7 @@ impl SignalCtl {
         &mut self,
         ctl: &mut CommandCtl,
         top_path: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         let all = self.get_signals_with_ctl(ctl, top_path, None)?;
         self.signals = all;
         Ok(())
@@ -37,7 +34,7 @@ impl SignalCtl {
         ctl: &mut CommandCtl,
         path: &str,
         net_direction: Option<SimSignalDirection>,
-    ) -> Result<Vec<SimSignal>, Box<dyn Error>> {
+    ) -> Result<Vec<SimSignal>, SimError> {
         let mut nets: Vec<SimSignal> = Vec::new();
         let directions: Vec<SimSignalDirection> = match net_direction {
             Some(d) => vec![d],
@@ -62,7 +59,7 @@ impl SignalCtl {
         ctl: &mut CommandCtl,
         path: &str,
         net_direction: SimSignalDirection,
-    ) -> Result<Vec<String>, Box<dyn Error>> {
+    ) -> Result<Vec<String>, SimError> {
         let direction_arg = match net_direction {
             SimSignalDirection::Input => "in",
             SimSignalDirection::Output => "out",
@@ -82,7 +79,7 @@ impl SignalCtl {
         ctl: &mut CommandCtl,
         path: &str,
         net_direction: SimSignalDirection,
-    ) -> Result<SimSignal, Box<dyn Error>> {
+    ) -> Result<SimSignal, SimError> {
         let drivers_output = ctl.send_and_expect_result(
             &format!(
                 "puts \"DRIVERS: [string map {{\\n ;}} [drivers {}]]\"",
@@ -122,33 +119,76 @@ impl SignalCtl {
 
     pub fn examine(
         &mut self,
-        runner: &mut Runner,
-        name: &str,
+        ctl: &mut CommandCtl,
+        signal: &mut SimSignal,
         radix: SimRadix,
-    ) -> Result<(), Box<dyn Error>> {
-        let sig = self.find_mut(name).ok_or("Signal not found")?;
-        runner.examine_net(sig, radix)
+    ) -> Result<(), SimError> {
+        let radix_arg = match radix {
+            SimRadix::Binary => "-binary",
+            SimRadix::Octal => "-octal",
+            SimRadix::Decimal => "-decimal",
+            SimRadix::Hexadecimal => "-hexadecimal",
+            SimRadix::Unsigned => "-unsigned",
+            SimRadix::Unknown => "",
+        };
+        let output = ctl.send_and_expect_result(
+            &format!("puts \"EXAMINE: [examine {} {}]\"", radix_arg, signal.name),
+            |line| line.starts_with("EXAMINE: "),
+        )?;
+        let examined_line = output
+            .last()
+            .unwrap()
+            .content
+            .trim_start_matches("EXAMINE: ");
+        signal.set(radix, examined_line);
+        Ok(())
     }
 
     pub fn examine_batch(
         &mut self,
-        runner: &mut Runner,
-        names: &[&str],
+        ctl: &mut CommandCtl,
+        signals: &mut [SimSignal],
         radix: SimRadix,
-    ) -> Result<(), Box<dyn Error>> {
-        // Collect indices first
-        let mut indices: Vec<usize> = Vec::new();
-        for n in names {
-            if let Some(pos) = self.signals.iter().position(|s| s.name == *n) {
-                indices.push(pos);
-            } else {
-                return Err(format!("Signal '{}' not found", n).into());
+    ) -> Result<(), SimError> {
+        if signals.is_empty() {
+            return Ok(());
+        }
+        let radix_arg = match radix {
+            SimRadix::Binary => "-binary",
+            SimRadix::Octal => "-octal",
+            SimRadix::Decimal => "-decimal",
+            SimRadix::Hexadecimal => "-hexadecimal",
+            SimRadix::Unsigned => "-unsigned",
+            SimRadix::Unknown => "",
+        };
+        let mut tcl_commands = Vec::new();
+        for signal in signals.iter() {
+            tcl_commands.push(format!(
+                "puts \"EXAMINE_BATCH:{}:[examine {} {}]\"",
+                signal.name, radix_arg, signal.name
+            ));
+        }
+        let combined_command = tcl_commands.join("; ");
+        ctl.send_command(&combined_command)?;
+        let mut results = std::collections::HashMap::new();
+        for line in ctl.parsed_buffer().iter() {
+            if matches!(line.line_type, LineType::Output | LineType::Log)
+                && line.content.starts_with("EXAMINE_BATCH:")
+            {
+                let parts: Vec<&str> = line
+                    .content
+                    .trim_start_matches("EXAMINE_BATCH:")
+                    .splitn(2, ':')
+                    .collect();
+                if parts.len() == 2 {
+                    results.insert(parts[0].to_string(), parts[1].to_string());
+                }
             }
         }
-        let mut temp: Vec<SimSignal> = indices.iter().map(|&i| self.signals[i].clone()).collect();
-        runner.examine_nets_batch(&mut temp, radix)?;
-        for (idx, updated) in indices.into_iter().zip(temp.into_iter()) {
-            self.signals[idx].value = updated.value;
+        for signal in signals.iter_mut() {
+            if let Some(value) = results.get(&signal.name) {
+                signal.set(radix, value);
+            }
         }
         Ok(())
     }
@@ -159,7 +199,7 @@ impl SignalCtl {
         signal: &SimSignal,
         value: &str,
         radix: SimRadix,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         let value_prefix = match radix {
             SimRadix::Binary => "'b",
             SimRadix::Octal => "'o",
@@ -176,7 +216,7 @@ impl SignalCtl {
         ctl: &mut CommandCtl,
         signals: &[SimSignal],
         values: &[(SimRadix, &str)],
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         if signals.is_empty() || signals.len() != values.len() {
             return Err("Signals and values must have the same length and be non-empty".into());
         }
@@ -200,7 +240,7 @@ impl SignalCtl {
         &mut self,
         ctl: &mut CommandCtl,
         signal: &SimSignal,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         let value = signal
             .value
             .as_ref()
@@ -215,7 +255,7 @@ impl SignalCtl {
         name: &str,
         value: &str,
         radix: SimRadix,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         let idx = self
             .signals
             .iter()
@@ -229,7 +269,7 @@ impl SignalCtl {
         ctl: &mut CommandCtl,
         names: &[&str],
         vals: &[(SimRadix, &str)],
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         if names.len() != vals.len() {
             return Err("Names and values length mismatch".into());
         }
@@ -239,7 +279,7 @@ impl SignalCtl {
                 .signals
                 .iter()
                 .position(|s| s.name == *n)
-                .ok_or(format!("Signal '{}' not found", n))?;
+                .ok_or(SimError::CommandError(format!("Signal '{}' not found", n)))?;
             sigs.push(self.signals[idx].clone());
         }
         self.force_signals_batch(ctl, &sigs, vals)

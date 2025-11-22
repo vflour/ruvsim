@@ -10,9 +10,10 @@ use axum::{
     http::StatusCode,
 };
 use ruvsim::sim_types::SimSignalDirection;
-use ruvsim::sim_types::{SimRadix, SimSignal};
+use ruvsim::sim_types::{SimRadix, SimSignal, SimTimeUnit};
 use uuid::Uuid;
 
+use std::str::FromStr;
 use std::time::Instant;
 
 use super::api_types::{
@@ -94,18 +95,18 @@ pub async fn create_session(
 #[axum::debug_handler]
 #[utoipa::path(
     get,
-    path = "/sessions/{id}/nets",
+    path = "/sessions/{id}/signals",
     tag = "ruvsim",
     params(
         ("id" = Uuid, Path, description = "Session ID"),
-        ("path" = Option<String>, Query, description = "Net path pattern"),
+        ("path" = Option<String>, Query, description = "Signal path pattern"),
         ("direction" = Option<String>, Query, description = "Input|Output|Inout|All"),
-        ("examine" = Option<bool>, Query, description = "Examine nets to include value"),
+        ("examine" = Option<bool>, Query, description = "Examine signals to include value"),
         ("radix" = Option<String>, Query, description = "binary|octal|decimal|hexadecimal|unsigned")
     ),
-    responses((status = 200, description = "Nets", body = [NetDto]))
+    responses((status = 200, description = "Signals", body = [NetDto]))
 )]
-pub async fn list_nets(
+pub async fn list_signals(
     AxumPath(id): AxumPath<Uuid>,
     State(state): State<AppState>,
     Query(q): Query<NetsQuery>,
@@ -121,25 +122,25 @@ pub async fn list_nets(
         _ => Some(parsed_signal_direction),
     };
 
-    let nets = session.runner.get_nets(path, signal_direction)
-    .map_err(|e| ApiError::Internal(format!("Failed to query nets: {}", e)))?;
+    let signals = session.runner.get_signals(path, signal_direction)
+    .map_err(|e| ApiError::Internal(format!("Failed to query signals: {}", e)))?;
 
     // Redeclare, get mutable copy
-    let mut out = Vec::with_capacity(nets.len());
-    let mut nets = nets; // mutable if examine requested
+    let mut out = Vec::with_capacity(signals.len());
+    let mut signals = signals; // mutable if examine requested
 
     if q.examine {
         let radix: SimRadix = q.parse_param()?;
-        for net in nets.iter_mut() {
+        for signal in signals.iter_mut() {
             session
                 .runner
-                .examine_net(net, radix)
+                .examine_signal(signal, radix)
                 .map_err(|e| ApiError::Internal(format!("examine failed: {}", e)))?;
         }
     }
 
-    for net in nets.into_iter() {
-        out.push(net.format_field());
+    for signal in signals.into_iter() {
+        out.push(signal.format_field());
     }
 
     Ok(Json(out))
@@ -171,9 +172,8 @@ pub async fn run_session(
     match req {
         RunRequest::All => session.runner.run_all(),
         RunRequest::Next => session.runner.run_next(),
-        RunRequest::For { ns } => session.runner.run_for(ns),
-    }
-    .map_err(|e| ApiError::Internal(format!("run failed: {}", e)))?;
+        RunRequest::For {time, unit} => session.runner.run_for(time, SimTimeUnit::from_str(&unit).map_err(|e| ApiError::BadRequest(e))?),
+    }.map_err(|e| ApiError::Internal(format!("run failed: {}", e)))?;
     Ok(Json(RunResponse {
         ran_in_ms: start.elapsed().as_millis(),
     }))
@@ -232,7 +232,7 @@ pub async fn get_logs(
     request_body = ExamineRequest,
     responses((status = 200, description = "Examined net", body = ExamineResponse))
 )]
-pub async fn examine_net(
+pub async fn examine_signal(
     AxumPath(id): AxumPath<Uuid>,
     State(state): State<AppState>,
     Json(req): Json<ExamineRequest>,
@@ -242,26 +242,26 @@ pub async fn examine_net(
     session.last_access = Instant::now();
 
     // Obtain the net via query so we can reuse existing API logic
-    let mut nets = session
+    let mut signals = session
         .runner
-        .get_nets(&req.path, None)
-        .map_err(|e| ApiError::Internal(format!("net query failed: {}", e)))?;
+        .get_signals(&req.path, None)
+        .map_err(|e| ApiError::Internal(format!("signal query failed: {}", e)))?;
 
-    if nets.is_empty() {
+    if signals.is_empty() {
         return Err(ApiError::BadRequest(format!(
-            "No nets found at path {}",
+            "No signals found at path {}",
             req.path
         )));
     }
     let radix: SimRadix = req.parse_param()?;
 
-    let mut net: SimSignal = nets.remove(0);
+    let mut signal: SimSignal = signals.remove(0);
     session
         .runner
-        .examine_net(&mut net, radix)
+        .examine_signal(&mut signal, radix)
         .map_err(|e| ApiError::Internal(format!("examine failed: {}", e)))?;
 
-    Ok(Json(net.format_field()))
+    Ok(Json(signal.format_field()))
 }
 
 /** 

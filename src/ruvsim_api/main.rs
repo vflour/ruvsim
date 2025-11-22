@@ -19,7 +19,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 use api_routes::{
-    create_session, delete_session, examine_net, get_logs, health, list_nets, list_sessions,
+    create_session, delete_session, examine_signal, get_logs, health, list_signals, list_sessions,
     run_session, send_cmd,
 };
 use api_types::{AppState, Config};
@@ -88,10 +88,10 @@ fn build_app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/sessions", get(list_sessions).post(create_session))
-        .route("/sessions/:id/nets", get(list_nets))
+        .route("/sessions/:id/signals", get(list_signals))
         .route("/sessions/:id/run", post(run_session))
         .route("/sessions/:id/logs", get(get_logs))
-        .route("/sessions/:id/examine", post(examine_net))
+        .route("/sessions/:id/examine", post(examine_signal))
         .route("/sessions/:id/cmd", post(send_cmd))
         .route("/sessions/:id", delete(delete_session))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))

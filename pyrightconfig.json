@@ -1,6 +1,5 @@
 {
     "typeCheckingMode": "basic",
-    "reportMissingTypeStubs": false,
     "reportExplicitAny": false,
     "venv": "venv",
     "venvPath": "./"

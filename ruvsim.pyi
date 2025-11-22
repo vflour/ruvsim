@@ -1,258 +1,387 @@
-"""
-Type stubs for ruvsim - A Python interface to ModelSim/QuestaSim simulator
-"""
+"""Type stubs for ruvsim - Rust-based ModelSim/QuestaSim interface"""
 
-from typing import Optional, List
+from typing import Optional, Literal
 
-class PySignal:
-    """Represents a signal in the simulation"""
-    
-    @property
-    def name(self) -> str:
-        """The name/path of the signal"""
-        ...
-    
-    @property
-    def value(self) -> str:
-        """The current value of the signal as a string"""
-        ...
-    
-    @property
-    def radix(self) -> str:
-        """The radix used to display the value (Binary, Octal, Decimal, Hexadecimal, Unsigned, or Unknown)"""
-        ...
-    
-    @property
-    def drivers(self) -> List['PyDriver']:
-        """List of drivers for this signal"""
-        ...
-    
-    @property
-    def direction(self) -> str:
-        """The direction of the signal (Input, Output, Inout, or Unknown)"""
-        ...
-    
-    @property
-    def left_bound(self) -> Optional[int]:
-        """The left bound of the signal range (in bits), if applicable"""
-        ...
-    
-    @property
-    def right_bound(self) -> Optional[int]:
-        """The right bound of the signal range (in bits), if applicable"""
-        ...
-    
-    def numeric_value(self) -> Optional[int]:
-        """
-        Get the numeric value of the signal as an integer.
-        Returns None if the value contains 'x' or 'z' (unknown/high-impedance).
-        """
-        ...
+def version() -> str:
+    """Return the version of the ruvsim package."""
+    ...
 
 class PyDriver:
-    """Represents a driver of a signal"""
+    """Represents a signal driver in the simulation."""
     
     @property
     def driver_type(self) -> str:
-        """The type of driver (Object, Assign, Force, or Other)"""
+        """The type of the driver (e.g., 'Wire', 'Reg')."""
         ...
     
     @property
     def source(self) -> str:
-        """The source of the driver"""
+        """The source location of the driver."""
         ...
 
-class PyBreakpoint:
-    """Represents a simulation breakpoint"""
+class PySignal:
+    """Represents a signal in the simulation."""
     
     @property
     def name(self) -> str:
-        """The name of the breakpoint"""
+        """The name of the signal."""
+        ...
+    
+    @property
+    def value(self) -> str:
+        """The current value of the signal as a string."""
+        ...
+    
+    @property
+    def radix(self) -> str:
+        """The radix/base of the signal value (e.g., 'Binary', 'Hexadecimal')."""
+        ...
+    
+    @property
+    def drivers(self) -> list[PyDriver]:
+        """List of drivers for this signal."""
+        ...
+    
+    @property
+    def direction(self) -> str:
+        """The direction of the signal ('Input', 'Output', 'Inout', 'Unknown')."""
+        ...
+    
+    @property
+    def left_bound(self) -> int:
+        """The left bound of the signal range."""
+        ...
+    
+    @property
+    def right_bound(self) -> int:
+        """The right bound of the signal range."""
+        ...
+    
+    def numeric_value(self) -> Optional[int]:
+        """
+        Get the numeric value of the signal.
+        
+        Returns:
+            The signal value as an integer, or None if conversion fails.
+        """
+        ...
+
+class PyBreakpoint:
+    """Represents a breakpoint in the simulation."""
+    
+    @property
+    def name(self) -> str:
+        """The name/identifier of the breakpoint."""
         ...
     
     @property
     def file(self) -> str:
-        """The file path where the breakpoint is set"""
+        """The file where the breakpoint is set."""
         ...
     
     @property
     def line_num(self) -> int:
-        """The line number where the breakpoint is set"""
+        """The line number where the breakpoint is set."""
+        ...
+
+class PyMemory:
+    """Represents a memory block in the simulation."""
+    
+    @property
+    def name(self) -> str:
+        """The name of the memory block."""
+        ...
+    
+    @property
+    def left_bound(self) -> int:
+        """The left bound of the memory address range."""
+        ...
+    
+    @property
+    def right_bound(self) -> int:
+        """The right bound of the memory address range."""
+        ...
+
+class PyParsedLine:
+    """Represents a parsed line from the simulator output."""
+    
+    @property
+    def content(self) -> str:
+        """The content of the parsed line."""
+        ...
+    
+    @property
+    def line_type(self) -> str:
+        """The type of the line (e.g., 'Info', 'Warning', 'Error')."""
         ...
 
 class PyRunner:
     """
-    Main simulation runner interface.
-    Controls a ModelSim/QuestaSim simulation session.
+    Main interface for controlling the ModelSim/QuestaSim simulator.
+    
+    This class provides methods to control simulation execution, examine and
+    manipulate signals, manage breakpoints, and interact with the simulator.
     """
     
-    def __init__(self, vsim_command: str, args: List[str], cwd: str) -> None:
+    def __init__(self, vsim_command: str, args: list[str], cwd: str) -> None:
         """
-        Create a new simulation runner.
+        Initialize a new simulator runner.
         
         Args:
             vsim_command: Path to the vsim executable
             args: Command-line arguments to pass to vsim
-            cwd: Working directory for the simulation
+            cwd: Current working directory for the simulator
         """
         ...
     
     def wait_until_prompt_ms(self, timeout_ms: int) -> None:
         """
-        Wait until a prompt appears in the simulation, with a timeout in milliseconds.
+        Wait for the simulator prompt with a timeout.
         
         Args:
             timeout_ms: Timeout in milliseconds
+            
+        Raises:
+            RuntimeError: If timeout is reached or other error occurs
+        """
+        ...
+    
+    def wait_until_prompt_startup(self) -> None:
+        """
+        Wait for the initial simulator startup prompt.
         
         Raises:
-            RuntimeError: If timeout occurs or other error
+            RuntimeError: If an error occurs during startup
         """
         ...
     
     def send_command(self, command: str) -> None:
         """
-        Send a TCL command to the simulator.
+        Send a command to the simulator and wait for completion.
         
         Args:
             command: The TCL command to send
-        
+            
         Raises:
-            RuntimeError: If command fails
+            RuntimeError: If command execution fails
         """
         ...
     
-    def run_for(self, ns: int) -> None:
+    def send_command_no_wait(self, command: str) -> None:
         """
-        Run the simulation for a specified number of nanoseconds.
+        Send a command to the simulator without waiting for completion.
         
         Args:
-            ns: Number of nanoseconds to run
-        
+            command: The TCL command to send
+            
         Raises:
-            RuntimeError: If simulation fails
+            RuntimeError: If command sending fails
         """
         ...
     
-    def get_directed_nets_at_path(self, path: str, direction: str) -> List[PySignal]:
+    def run_for(self, time: int, unit: str) -> None:
         """
-        Get all nets at a given path with a specific direction.
+        Run the simulation for a specified time period.
         
         Args:
-            path: The hierarchical path in the design
-            direction: Direction filter ("in"/"input", "out"/"output", or "inout")
+            time: The amount of time to run
+            unit: Time unit ('fs', 'ps', 'ns', 'us', 'ms', 's')
+            
+        Raises:
+            RuntimeError: If simulation run fails
+        """
+        ...
+    
+    def run_all(self) -> None:
+        """
+        Run the simulation until completion.
+        
+        Raises:
+            RuntimeError: If simulation run fails
+        """
+        ...
+    
+    def run_next(self) -> None:
+        """
+        Step to the next simulation event.
+        
+        Raises:
+            RuntimeError: If simulation step fails
+        """
+        ...
+    
+    def run_continue(self) -> None:
+        """
+        Continue simulation execution (used after hitting a breakpoint).
+        
+        Raises:
+            RuntimeError: If simulation continue fails
+        """
+        ...
+    
+    def finish(self) -> None:
+        """
+        Finish the simulation.
+        
+        Raises:
+            RuntimeError: If finish command fails
+        """
+        ...
+    
+    def get_time(self) -> str:
+        """
+        Get the current simulation time.
         
         Returns:
-            List of PySignal objects matching the criteria
-        
+            The current simulation time as a string
+            
         Raises:
-            RuntimeError: If query fails
-            ValueError: If direction is invalid
+            RuntimeError: If time query fails
         """
         ...
     
-    def get_all_nets_at_path(self, path: str) -> List[PySignal]:
+    def get_status(self) -> str:
         """
-        Get all nets at a given path, regardless of direction.
-        
-        Args:
-            path: The hierarchical path in the design
+        Get the current simulation status.
         
         Returns:
-            List of PySignal objects
-        
+            The simulation status string
+            
         Raises:
-            RuntimeError: If query fails
+            RuntimeError: If status query fails
         """
         ...
     
-    def examine_net(self, signal: PySignal, radix: str) -> None:
+    def get_signal(self, path: str, direction: Optional[str] = None) -> Optional[PySignal]:
         """
-        Examine a signal and update its value using the specified radix.
+        Get a single signal by path.
+        
+        Args:
+            path: The hierarchical path to the signal
+            direction: Optional direction filter ('in', 'out', 'inout')
+            
+        Returns:
+            The signal if found, None otherwise
+            
+        Raises:
+            RuntimeError: If signal query fails
+        """
+        ...
+    
+    def get_signals(self, path: Optional[str] = None, direction: Optional[str] = None) -> list[PySignal]:
+        """
+        Get multiple signals matching a path pattern.
+        
+        Args:
+            path: Optional hierarchical path pattern (default: '*' for all signals)
+            direction: Optional direction filter ('in', 'out', 'inout')
+            
+        Returns:
+            List of matching signals
+            
+        Raises:
+            RuntimeError: If signal query fails
+        """
+        ...
+    
+    def examine_signal(self, signal: PySignal, radix: str) -> None:
+        """
+        Examine a signal and update its value in the specified radix.
         
         Args:
             signal: The signal to examine
-            radix: The radix to use ("binary"/"bin", "octal"/"oct", "decimal"/"dec", 
-                   "hex"/"hexadecimal", or "unsigned"/"uns")
-        
+            radix: Display radix ('binary'/'bin', 'octal'/'oct', 'decimal'/'dec', 
+                   'hex'/'hexadecimal', 'unsigned'/'uns')
+            
         Raises:
-            RuntimeError: If examination fails
+            RuntimeError: If examine fails
             ValueError: If radix is invalid
         """
         ...
-
-    def examine_nets_batch(self, signals: List[PySignal], radix: str) -> None:
+    
+    def examine_signals_batch(self, signals: list[PySignal], radix: str) -> None:
         """
-        Examine multiple signals in a single batch operation for improved performance.
-        
-        This method is significantly faster than calling examine_net() individually 
-        for each signal, as it sends all examine commands at once and parses the 
-        results in a single operation.
+        Examine multiple signals in batch for better performance.
         
         Args:
             signals: List of signals to examine
-            radix: The radix to use for all signals ("binary"/"bin", "octal"/"oct", 
-                   "decimal"/"dec", "hex"/"hexadecimal", or "unsigned"/"uns")
-        
+            radix: Display radix for all signals
+            
         Raises:
-            RuntimeError: If examination fails
+            RuntimeError: If examine fails
             ValueError: If radix is invalid
-        
-        Example:
-            >>> signals = runner.get_all_nets_at_path("/top/*")
-            >>> runner.examine_nets_batch(signals, "binary")
-            >>> print(signals[0].value)
         """
         ...
-
-    def examine_net_int(self, signal: PySignal) -> int:
+    
+    def examine_signal_int_64(self, signal: PySignal) -> int:
         """
-        Examine a signal and return its numeric value as an integer.
+        Examine a signal and return its value as a 64-bit integer.
         
         Args:
             signal: The signal to examine
+            
         Returns:
-            The numeric value as an integer
+            The signal value as an integer
+            
         Raises:
-            RuntimeError: If examination fails
+            RuntimeError: If examine fails or value cannot be converted
         """
         ...
-
-    def force_net(self, signal: PySignal, value: str, radix: str) -> None:
+    
+    def examine_signal_int_128(self, signal: PySignal) -> int:
         """
-        Force a signal to a specific value in the simulation.
+        Examine a signal and return its value as a 128-bit integer.
         
         Args:
-            signal_name: The hierarchical path of the signal to force
-            value: The value to force (e.g., "1", "0", "16#FF", "2#1010")
-            radix: The radix of the value ("binary"/"bin", "octal"/"oct", "decimal"/"dec", 
-                   "hex"/"hexadecimal", or "unsigned"/"uns")
-        
+            signal: The signal to examine
+            
+        Returns:
+            The signal value as an integer
+            
         Raises:
-            RuntimeError: If force command fails
+            RuntimeError: If examine fails or value cannot be converted
         """
         ...
-
-    def force_nets_batch(self, signals: List[PySignal], values: List[str], radices: List[str]) -> None:
+    
+    def force_signal(self, signal: PySignal, value: str, radix: str) -> None:
         """
-        Force multiple signals to specific values in a single batch operation.
+        Force a signal to a specific value.
         
-        This method is significantly faster than calling force_net() individually 
-        for each signal, as it sends all force commands at once.
+        Args:
+            signal: The signal to force
+            value: The value to force (as a string in the specified radix)
+            radix: The radix of the value
+            
+        Raises:
+            RuntimeError: If force fails
+            ValueError: If radix is invalid
+        """
+        ...
+    
+    def force_signals_batch(self, signals: list[PySignal], values: list[str], radices: list[str]) -> None:
+        """
+        Force multiple signals in batch for better performance.
         
         Args:
             signals: List of signals to force
-            values: List of values to force (same length as signals)
-            radices: List of radices for each value (same length as signals)
-                     Each radix can be "binary"/"bin", "octal"/"oct", "decimal"/"dec", 
-                     "hex"/"hexadecimal", or "unsigned"/"uns"
-        
+            values: List of values (one per signal)
+            radices: List of radices (one per signal)
+            
         Raises:
-            RuntimeError: If force command fails or if lists have different lengths
+            RuntimeError: If lists have different lengths or force fails
             ValueError: If any radix is invalid
+        """
+        ...
+    
+    def force_signal_update(self, signal: PySignal) -> None:
+        """
+        Update a forced signal (propagate the forced value).
         
-        Example:
-            >>> signals = runner.get_all_nets_at_path("/top/clk")
-            >>> runner.force_nets_batch(signals[:3], ["1", "0", "1"], ["binary", "binary", "binary"])
+        Args:
+            signal: The signal to update
+            
+        Raises:
+            RuntimeError: If update fails
         """
         ...
     
@@ -276,171 +405,167 @@ class PyRunner:
     
     def create_breakpoint(self, filename: str, line_num: int) -> PyBreakpoint:
         """
-        Create a breakpoint in the simulation.
+        Create a breakpoint at a specific file and line.
         
         Args:
-            filename: The file containing the breakpoint
-            line_num: The line number for the breakpoint
-        
+            filename: The source file name
+            line_num: The line number
+            
         Returns:
-            PyBreakpoint object representing the created breakpoint
-        
+            The created breakpoint
+            
         Raises:
             RuntimeError: If breakpoint creation fails
         """
         ...
-
-    def run_continue(self) -> None:
+    
+    def list_breakpoints(self) -> list[PyBreakpoint]:
         """
-        Continue running the simulation (typically after hitting a breakpoint).
+        List all breakpoints.
         
+        Returns:
+            List of all breakpoints
+            
         Raises:
-            RuntimeError: If continue fails
+            RuntimeError: If listing fails
         """
         ...
     
-    def get_log_matches_contains(self, needle: str) -> List[str]:
+    def delete_breakpoint(self, file: str, line_num: int) -> None:
         """
-        Get log lines that contain a specific substring.
+        Delete a breakpoint.
+        
+        Args:
+            file: The source file name
+            line_num: The line number
+            
+        Raises:
+            RuntimeError: If deletion fails
+        """
+        ...
+    
+    def get_log_matches_contains(self, needle: str) -> list[str]:
+        """
+        Get log lines containing a specific substring.
         
         Args:
             needle: The substring to search for
-        
+            
         Returns:
             List of matching log lines
-        
+            
         Raises:
             RuntimeError: If search fails
         """
         ...
     
-    def send_and_expect_contains(self, command: str, needle: str) -> List[str]:
+    def send_and_expect_contains(self, command: str, needle: str) -> list[str]:
         """
         Send a command and return output lines containing a specific substring.
         
         Args:
             command: The command to send
-            needle: The substring to search for in the output
-        
+            needle: The substring to search for in output
+            
         Returns:
             List of matching output lines
-        
+            
         Raises:
             RuntimeError: If command fails
         """
         ...
     
-    def get_log_matches_regex(self, pattern: str) -> List[str]:
+    def get_log_matches_regex(self, pattern: str) -> list[str]:
         """
-        Get log lines that match a regular expression pattern.
+        Get log lines matching a regular expression.
         
         Args:
             pattern: The regex pattern to match
-        
+            
         Returns:
             List of matching log lines
-        
+            
         Raises:
             RuntimeError: If search fails
             ValueError: If regex pattern is invalid
         """
         ...
     
-    def send_and_expect_regex(self, command: str, pattern: str) -> List[str]:
+    def send_and_expect_regex(self, command: str, pattern: str) -> list[str]:
         """
         Send a command and return output lines matching a regular expression.
         
         Args:
             command: The command to send
-            pattern: The regex pattern to match in the output
-        
+            pattern: The regex pattern to match in output
+            
         Returns:
             List of matching output lines
-        
+            
         Raises:
             RuntimeError: If command fails
             ValueError: If regex pattern is invalid
         """
         ...
     
-    def get_nets(self, path: Optional[str] = None) -> List[PySignal]:
+    def parsed_buffer(self) -> list[PyParsedLine]:
         """
-        Get all nets at a given path (defaults to all nets with "*").
-        
-        Args:
-            path: The hierarchical path in the design (default: "*")
+        Get all parsed lines from the simulator output buffer.
         
         Returns:
-            List of PySignal objects
-        
-        Raises:
-            RuntimeError: If query fails
+            List of all parsed lines
         """
         ...
     
-    def wait_until_prompt_startup(self) -> None:
+    def latest_buffer(self) -> list[PyParsedLine]:
         """
-        Wait for the initial prompt during simulator startup.
+        Get the latest parsed lines from the simulator output buffer.
         
-        Raises:
-            RuntimeError: If timeout or error occurs
+        Returns:
+            List of latest parsed lines
         """
         ...
     
-    def run_all(self) -> None:
+    def list_mems(self) -> list[PyMemory]:
         """
-        Run the simulation to completion.
+        List all memory blocks in the simulation.
         
+        Returns:
+            List of memory blocks
+            
         Raises:
-            RuntimeError: If simulation fails
-        """
-        ...
-    
-    def run_next(self) -> None:
-        """
-        Execute the next statement in the simulation (step).
-        
-        Raises:
-            RuntimeError: If step fails
-        """
-        ...
-    
-    def finish(self) -> None:
-        """
-        Finish the simulation session.
-        
-        Raises:
-            RuntimeError: If finish fails
+            RuntimeError: If listing fails
         """
         ...
 
 class PyCompiler:
     """
-    Compiler interface for ModelSim/QuestaSim.
-    Supports both vlog (Verilog/SystemVerilog) and vcom (VHDL) commands.
+    Interface for compiling HDL code with ModelSim/QuestaSim compilers (vlog/vcom).
+    
+    This class provides a builder-style interface for configuring and running
+    the HDL compiler.
     """
     
-    def __init__(self, work_dir: str, modelsim_path: str, command: str) -> None:
+    def __init__(self, work_dir: str, modelsim_path: str, command: Literal["vlog", "vcom"]) -> None:
         """
-        Create a new compiler instance.
+        Initialize a new compiler.
         
         Args:
             work_dir: Working directory for compilation
-            modelsim_path: Path to ModelSim installation
-            command: Compiler command to use ("vlog" or "vcom")
-        
+            modelsim_path: Path to ModelSim/QuestaSim installation
+            command: Compiler command ('vlog' for Verilog/SystemVerilog, 'vcom' for VHDL)
+            
         Raises:
-            ValueError: If command is not "vlog" or "vcom"
+            ValueError: If command is not 'vlog' or 'vcom'
         """
         ...
     
     def enable_system_verilog(self) -> None:
         """
-        Enable SystemVerilog support (vlog only).
+        Enable SystemVerilog support (only valid for vlog).
         
         Raises:
             ValueError: If called on a vcom compiler
-            RuntimeError: If compiler already used
         """
         ...
     
@@ -450,21 +575,21 @@ class PyCompiler:
         
         Args:
             arg: The argument to add
-        
+            
         Raises:
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
         """
         ...
     
     def add_optimization(self, level: int) -> None:
         """
-        Set optimization level for compilation.
+        Set the optimization level.
         
         Args:
-            level: Optimization level (0-3 typically)
-        
+            level: Optimization level (O0, O3, O4, O5)
+            
         Raises:
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
         """
         ...
     
@@ -473,78 +598,70 @@ class PyCompiler:
         Set the current directory for compilation.
         
         Args:
-            dir: Directory path
-        
+            dir: The directory path
+            
         Raises:
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
         """
         ...
     
     def add_dependency(self, dep: str) -> None:
         """
-        Add a single source file dependency.
+        Add a single HDL source file dependency.
         
         Args:
             dep: Path to the dependency file
-        
+            
         Raises:
-            FileNotFoundError: If dependency file doesn't exist
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
+            FileNotFoundError: If dependency file does not exist
         """
         ...
     
-    def add_dependencies(self, deps: List[str]) -> None:
+    def add_dependencies(self, deps: list[str]) -> None:
         """
-        Add multiple source file dependencies.
+        Add multiple HDL source file dependencies.
         
         Args:
             deps: List of paths to dependency files
-        
+            
         Raises:
-            FileNotFoundError: If any dependency file doesn't exist
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
+            FileNotFoundError: If any dependency file does not exist
         """
         ...
     
     def add_work_library(self, lib: str) -> None:
         """
-        Add a work library to the compilation.
+        Add a work library to search path.
         
         Args:
             lib: Library name
-        
+            
         Raises:
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
         """
         ...
     
     def set_work(self, lib: str) -> None:
         """
-        Set the work library for compilation.
+        Set the target work library.
         
         Args:
             lib: Library name
-        
+            
         Raises:
-            RuntimeError: If compiler already used
+            RuntimeError: If compiler has already been run
         """
         ...
     
     def run(self) -> None:
         """
         Execute the compilation.
-        Note: This consumes the compiler instance and it cannot be reused.
+        
+        This consumes the compiler object - it cannot be reused after calling run().
         
         Raises:
-            RuntimeError: If compilation fails or compiler already used
+            RuntimeError: If compilation fails or compiler has already been run
         """
         ...
-
-def version() -> str:
-    """
-    Get the version of the ruvsim package.
-    
-    Returns:
-        Version string
-    """
-    ...

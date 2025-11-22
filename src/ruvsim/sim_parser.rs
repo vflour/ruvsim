@@ -1,6 +1,5 @@
-use super::sim_types::{LineType, ParsedLine, ParsedPrompt};
+use super::sim_types::{LineType, ParsedLine, ParsedPrompt, SimError};
 use derive_getters::Getters;
-use std::error::Error;
 use std::io::BufReader;
 use std::io::Read;
 use std::process::ChildStdout;
@@ -140,7 +139,7 @@ impl Parser {
         }
     }
 
-    pub fn get_next_prompt(&mut self) -> Result<Option<ParsedPrompt>, Box<dyn Error>> {
+    pub fn get_next_prompt(&mut self) -> Result<Option<ParsedPrompt>, SimError> {
         let timeout = Instant::now() + Duration::from_millis(100);
         self._latest_buffer.clear();
         while Instant::now() < timeout {
@@ -159,7 +158,7 @@ impl Parser {
         return Ok(None);
     }
 
-    pub fn get_next_line(&mut self) -> Result<bool, Box<dyn Error>> {
+    pub fn get_next_line(&mut self) -> Result<bool, SimError> {
         for _ in 0..MAX_RETRIES {
             let received = self.rx.recv_timeout(READ_TIMEOUT_MS);
             match received {

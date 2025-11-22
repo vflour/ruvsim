@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ruvsim"
-version = "0.1.0"
+version = "0.1.2"
 description = "Python bindings for the ruvsim simulator runner"
 requires-python = ">=3.9"
 authors = [{ name = "vflour" }]

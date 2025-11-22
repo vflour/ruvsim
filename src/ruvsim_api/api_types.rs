@@ -1,6 +1,6 @@
 use super::api_routes::{
-    __path_create_session, __path_delete_session, __path_examine_net, __path_get_logs,
-    __path_health, __path_list_nets, __path_list_sessions, __path_run_session, __path_send_cmd,
+    __path_create_session, __path_delete_session, __path_examine_signal, __path_get_logs,
+    __path_health, __path_list_signals, __path_list_sessions, __path_run_session, __path_send_cmd,
 };
 
 use std::{
@@ -201,10 +201,10 @@ impl IntoResponse for ApiError {
         health,
         list_sessions,
         create_session,
-        list_nets,
+        list_signals,
         run_session,
         get_logs,
-        examine_net,
+        examine_signal,
         send_cmd,
         delete_session,
     ),
@@ -276,7 +276,7 @@ pub struct NetDto {
 pub enum RunRequest {
     All,
     Next,
-    For { ns: u64 },
+    For { time: u64, unit: String },
 }
 
 #[derive(Debug, Serialize, ToSchema)]

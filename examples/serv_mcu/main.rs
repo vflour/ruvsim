@@ -1,5 +1,5 @@
 use std::{fs::File, io::Write, path::Path, thread, time::Duration};
-use ruvsim::{sim_compiler, sim_runner};
+use ruvsim::{sim_compiler, sim_runner, sim_types::SimTimeUnit};
 use sim_compiler::{Compiler, CompilerCommand};
 use sim_runner::Runner;
 
@@ -99,13 +99,13 @@ fn run_sim() {
     // Log everything
     runner.send_command("log -r /*").ok();
     // Short run to load memory & release reset
-    runner.run_for(1000).ok();
+    runner.run_for(1000, SimTimeUnit::Ns).ok();
     // Examine first few instruction words and data bus address
     if let Ok(lines) = runner.send_and_expect_result("examine /serv_sdram_tb/i_ibus_rdt", |l| l.starts_with("# 32'h")) {
         if let Some(line) = lines.last() { println!("Current i_ibus_rdt: {}", line.content); }
     }
     // Run further to reach string address
-    runner.run_for(200_000).ok();
+    runner.run_for(200_000, SimTimeUnit::Ns).ok();
 
     runner.finish().expect("Finish failed");
     println!("serv_sdram_tb ran successfully.");

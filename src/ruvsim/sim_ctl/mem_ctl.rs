@@ -1,6 +1,4 @@
-use std::error::Error;
-
-use super::super::sim_types::{ParsedLine, SimMemory};
+use super::super::sim_types::{ParsedLine, SimMemory, SimError};
 use super::command_ctl::CommandCtl;
 
 pub struct MemCtl {
@@ -15,7 +13,7 @@ impl MemCtl {
     pub fn memories(&self) -> &Vec<SimMemory> {
         &self.memories
     }
-    pub fn list(&mut self, ctl: &mut CommandCtl) -> Result<Vec<SimMemory>, Box<dyn Error>> {
+    pub fn list(&mut self, ctl: &mut CommandCtl) -> Result<Vec<SimMemory>, SimError> {
         ctl.send_command("mem list")?;
         self.refresh(ctl.latest_buffer());
         Ok(self.memories.clone())

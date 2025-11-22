@@ -2,6 +2,38 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 use num_traits::Num;
+use std::fmt;
+
+// Error types for simulator interaction
+#[derive(Debug, Clone)]
+pub enum SimError {
+    ProcessError(String),
+    TimeoutError(String),
+    ParseError(String),
+    CommandError(String),
+    IOError(String),
+}
+
+impl fmt::Display for SimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SimError::ProcessError(msg) => write!(f, "Process Error: {}", msg),
+            SimError::TimeoutError(msg) => write!(f, "Timeout Error: {}", msg),
+            SimError::ParseError(msg) => write!(f, "Parse Error: {}", msg),
+            SimError::CommandError(msg) => write!(f, "Command Error: {}", msg),
+            SimError::IOError(msg) => write!(f, "IO Error: {}", msg),
+        }
+    }
+}
+
+impl From<&str> for SimError {
+    fn from(s: &str) -> Self {
+        SimError::ParseError(s.to_string())
+    }
+}
+
+impl std::error::Error for SimError {}
+
 
 // Regexes for each LineType:
 fn get_line_type_from_regex(line: &str) -> LineType {
@@ -138,6 +170,35 @@ pub enum SimTimeUnit {
     Us,
     Ms,
     S,
+}
+
+impl fmt::Display for SimTimeUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SimTimeUnit::Fs => write!(f, "fs"),
+            SimTimeUnit::Ps => write!(f, "ps"),
+            SimTimeUnit::Ns => write!(f, "ns"),
+            SimTimeUnit::Us => write!(f, "us"),
+            SimTimeUnit::Ms => write!(f, "ms"),
+            SimTimeUnit::S => write!(f, "s"),
+        }
+    }
+}
+
+impl FromStr for SimTimeUnit {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "fs" => Ok(SimTimeUnit::Fs),
+            "ps" => Ok(SimTimeUnit::Ps),
+            "ns" => Ok(SimTimeUnit::Ns),
+            "us" => Ok(SimTimeUnit::Us),
+            "ms" => Ok(SimTimeUnit::Ms),
+            "s" => Ok(SimTimeUnit::S),
+            _ => Err(format!("Unknown SimTimeUnit: {}", s)),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

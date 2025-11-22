@@ -1,15 +1,16 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use std::str::FromStr;
+use std::{cell::RefCell, path::Path};
+
 use pyo3::{Bound, exceptions::PyRuntimeError, prelude::*, types::PyModule};
 use regex::Regex;
 
 use crate::sim_types::{
-    ParsedLine, SimBreakpoint, SimDriver, SimMemory, SimRadix, SimSignalDirection,
+    ParsedLine, SimBreakpoint, SimDriver, SimMemory, SimRadix, SimSignalDirection, SimSignal, SimTimeUnit,
 };
-
-use super::sim_compiler::{Compiler as RsCompiler, CompilerCommand};
-use super::{sim_runner::Runner, sim_types::SimSignal};
-use std::{cell::RefCell, path::Path};
+use crate::sim_runner::Runner;
+use crate::sim_compiler::{Compiler as RsCompiler, CompilerCommand};
 
 #[pyclass]
 #[derive(Clone)]
@@ -212,10 +213,11 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn run_for(&self, ns: u64) -> PyResult<()> {
+    fn run_for(&self, time: u64, unit: String) -> PyResult<()> {
+        let sim_unit = SimTimeUnit::from_str(&unit).map_err(|e| PyRuntimeError::new_err(e))?;
         self.inner
             .borrow_mut()
-            .run_for(ns)
+            .run_for(time, sim_unit)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
@@ -258,12 +260,12 @@ impl PyRunner {
     }
 
     #[pyo3(signature = (path, direction=None))]
-    fn get_net(&self, path: &str, direction: Option<String>) -> PyResult<Option<PySignal>> {
-        Ok(self.get_nets(Some(path), direction)?.first().cloned())
+    fn get_signal(&self, path: &str, direction: Option<String>) -> PyResult<Option<PySignal>> {
+        Ok(self.get_signals(Some(path), direction)?.first().cloned())
     }
 
     #[pyo3(signature = (path=None, direction=None))]
-    fn get_nets(&self, path: Option<&str>, direction: Option<String>) -> PyResult<Vec<PySignal>> {
+    fn get_signals(&self, path: Option<&str>, direction: Option<String>) -> PyResult<Vec<PySignal>> {
         let p = path.unwrap_or_else(|| "*");
         let dir = match direction {
             Some(d) => Some(parse_direction(&d)?),
@@ -272,9 +274,9 @@ impl PyRunner {
 
         self.inner
             .borrow_mut()
-            .get_nets(&p, dir)
-            .map(|nets| {
-                nets.into_iter()
+            .get_signals(&p, dir)
+            .map(|signals| {
+                signals.into_iter()
                     .map(|n| PySignal {
                         inner: RefCell::new(n),
                     })
@@ -283,16 +285,16 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn examine_net(&self, signal: &PySignal, radix: String) -> PyResult<()> {
+    fn examine_signal(&self, signal: &PySignal, radix: String) -> PyResult<()> {
         let mut sig = signal.inner.borrow_mut();
         let rdx = parse_radix(&radix)?;
         self.inner
             .borrow_mut()
-            .examine_net(&mut sig, rdx)
+            .examine_signal(&mut sig, rdx)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn examine_nets_batch(&self, signals: Vec<Bound<'_, PySignal>>, radix: String) -> PyResult<()> {
+    fn examine_signals_batch(&self, signals: Vec<Bound<'_, PySignal>>, radix: String) -> PyResult<()> {
         let rdx = parse_radix(&radix)?;
         let mut inner_signals: Vec<SimSignal> = signals
             .iter()
@@ -300,7 +302,7 @@ impl PyRunner {
             .collect();
         self.inner
             .borrow_mut()
-            .examine_nets_batch(&mut inner_signals, rdx)
+            .examine_signals_batch(&mut inner_signals, rdx)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
         for (py_sig, inner_sig) in signals.iter().zip(inner_signals.iter()) {
             py_sig.borrow().inner.borrow_mut().value = inner_sig.value.clone();
@@ -308,27 +310,27 @@ impl PyRunner {
         Ok(())
     }
 
-    fn examine_net_int_64(&self, signal: &PySignal) -> PyResult<u64> {
+    fn examine_signal_int_64(&self, signal: &PySignal) -> PyResult<u64> {
         let mut sig = signal.inner.borrow_mut();
         self.inner
             .borrow_mut()
-            .examine_net(&mut sig, SimRadix::Binary)
+            .examine_signal(&mut sig, SimRadix::Binary)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
         sig.get_numeric_value::<u64>()
             .ok_or_else(|| PyRuntimeError::new_err("Unable to convert signal to numeric value"))
     }
 
-    fn examine_net_int_128(&self, signal: &PySignal) -> PyResult<u128> {
+    fn examine_signal_int_128(&self, signal: &PySignal) -> PyResult<u128> {
         let mut sig = signal.inner.borrow_mut();
         self.inner
             .borrow_mut()
-            .examine_net(&mut sig, SimRadix::Binary)
+            .examine_signal(&mut sig, SimRadix::Binary)
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))?;
         sig.get_numeric_value::<u128>()
             .ok_or_else(|| PyRuntimeError::new_err("Unable to convert signal to numeric value"))
     }
 
-    fn force_net(&self, signal: &PySignal, value: String, radix: String) -> PyResult<()> {
+    fn force_signal(&self, signal: &PySignal, value: String, radix: String) -> PyResult<()> {
         let mut sig = signal.inner.borrow_mut();
         let rdx = parse_radix(&radix)?;
         self.inner
@@ -337,7 +339,7 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn force_nets_batch(
+    fn force_signals_batch(
         &self,
         signals: Vec<Bound<'_, PySignal>>,
         values: Vec<String>,
@@ -364,7 +366,7 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn force_net_update(&self, signal: &PySignal) -> PyResult<()> {
+    fn force_signal_update(&self, signal: &PySignal) -> PyResult<()> {
         let sig = signal.inner.borrow();
         self.inner
             .borrow_mut()

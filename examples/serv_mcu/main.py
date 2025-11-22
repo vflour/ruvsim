@@ -81,9 +81,9 @@ r = PyRunner(
 r.wait_until_prompt_startup()
 # Run the testbench to completion
 r.send_command("log -r /*")
-r.run_for(1)
+r.run_for(1, "ns")
 
-r.run_for(400000)
+r.run_for(400000, "ns")
 results = r.send_and_expect_regex('puts "MEMS LIST: [mem list]"', r"^MEMS LIST: .*")
 for result in results:
     memory_path_regex: Any = re.compile(r"Verilog: (\/[a-zA-Z_\/]+)")

@@ -1,7 +1,7 @@
 use ruvsim::{
     sim_compiler::{Compiler, CompilerCommand},
     sim_runner::Runner,
-    sim_types::SimRadix,
+    sim_types::{SimRadix, SimTimeUnit},
 };
 
 // Example memory testbench runner template.
@@ -79,21 +79,21 @@ fn run_sim() {
     }
     // Set the signal 'a' to 42
     let a_in = runner
-        .get_net("/Mem_tb/a", Option::None)
+        .get_signal("/Mem_tb/a", Option::None)
         .expect("Failed to get signal 'a'");
     runner
         .force_signal(&a_in, "42", SimRadix::Decimal)
         .expect("Failed to set signal 'a' to 42");
 
     // Run simulation
-    runner.run_for(1000).expect("Run failed");
+    runner.run_for(1000, SimTimeUnit::Ns).expect("Run failed");
 
     // View data output
     let mut q_out = runner
-        .get_net("/Mem_tb/q", Option::None)
+        .get_signal("/Mem_tb/q", Option::None)
         .expect("Failed to get signal 'q'");
     runner
-        .examine_net(&mut q_out, SimRadix::Decimal)
+        .examine_signal(&mut q_out, SimRadix::Decimal)
         .expect("Failed to examine signal 'q'");
 
     println!(

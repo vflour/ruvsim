@@ -1,7 +1,6 @@
-use std::error::Error;
 use std::path::PathBuf;
 
-use super::super::sim_types::{LineType, ParsedLine, SimBreakpoint};
+use super::super::sim_types::{LineType, ParsedLine, SimBreakpoint, SimError};
 use super::command_ctl::CommandCtl;
 
 pub struct BreakpointCtl {
@@ -25,7 +24,7 @@ impl BreakpointCtl {
         ctl: &mut CommandCtl,
         filename: &str,
         line_num: u32,
-    ) -> Result<SimBreakpoint, Box<dyn Error>> {
+    ) -> Result<SimBreakpoint, SimError> {
         let bp = SimBreakpoint {
             name: format!("{} {}", filename, line_num),
             file: PathBuf::from(filename),
@@ -39,7 +38,7 @@ impl BreakpointCtl {
         Ok(bp)
     }
 
-    pub fn list(&mut self, ctl: &mut CommandCtl) -> Result<Vec<SimBreakpoint>, Box<dyn Error>> {
+    pub fn list(&mut self, ctl: &mut CommandCtl) -> Result<Vec<SimBreakpoint>, SimError> {
         ctl.send_command("bp")?;
         self.refresh(ctl.latest_buffer());
         Ok(self.breakpoints.clone())
@@ -50,7 +49,7 @@ impl BreakpointCtl {
         ctl: &mut CommandCtl,
         file: &str,
         line_num: u32,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), SimError> {
         ctl.send_command(&format!("bd {} {}", file, line_num))?; // NOTE: may need 'bp -delete'
         ctl.send_command("bp")?; // refresh listing
         self.refresh(ctl.latest_buffer());
@@ -97,7 +96,7 @@ impl BreakpointCtl {
         self.breakpoints = bps;
     }
 
-    pub fn toggle_enabled(&mut self, _ctl: &mut CommandCtl) -> Result<(), Box<dyn Error>> {
+    pub fn toggle_enabled(&mut self, _ctl: &mut CommandCtl) -> Result<(), SimError> {
         self._enabled = !self._enabled;
         if self._enabled {
             _ctl.send_command("enablebp")?;

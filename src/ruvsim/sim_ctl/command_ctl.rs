@@ -1,22 +1,22 @@
 use super::super::sim_parser::Parser;
-use super::super::sim_types::{LineType, ParsedLine};
+use super::super::sim_types::{LineType, ParsedLine, SimError};
 
-use std::error::Error;
-use std::io::{BufReader, Read, Write};
-use std::process::{Child, ChildStderr, ChildStdin, Command, Stdio};
+use std::io::{BufReader, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+
+// Control interface for sending commands to the simulator process
 pub struct CommandCtl {
     parser: Parser,
     stdin: ChildStdin,
-    stderr: ChildStderr,
     child: Child,
     latest_cache: Vec<ParsedLine>, // cache of lines since last prompt
 }
 
 impl CommandCtl {
-    pub fn spawn(vsim_command: &str, args: &[&str], cwd: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn spawn(vsim_command: &str, args: &[&str], cwd: &str) -> Result<Self, SimError> {
         // Ensure batch mode (-c) unless already specified in args
         let needs_batch = !args.iter().any(|a| *a == "-c");
         let mut cmd = Command::new(vsim_command);
@@ -29,42 +29,45 @@ impl CommandCtl {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| SimError::ProcessError(format!("Failed to start process: {}", e)))?;
 
         let stdout = child.stdout.take().ok_or("Expected stdout")?;
         let reader = BufReader::new(stdout);
         let parser = Parser::new(reader);
         let stdin = child.stdin.take().ok_or("Expected stdin")?;
-        let stderr = child.stderr.take().ok_or("Expected stderr")?;
 
-        println!("Started simulator process with PID {}", child.id());
-        if let Some(status) = child.try_wait()? {
-            return Err(format!(
+        log::info!("Started simulator process with PID {}", child.id());
+        let child_status = child.try_wait().map_err(|e| SimError::ProcessError(format!("Failed to check process status: {}", e)))?;
+        if  let Some(status) = child_status {
+            return Err(SimError::ProcessError(format!(
                 "Simulator exited immediately with status {}. CMD: {} {}\n CWD: {}",
                 status,
                 vsim_command,
                 args.join(" "),
                 cwd
             )
-            .into());
+            .into()));
         }
 
         Ok(Self {
             parser,
             stdin,
-            stderr,
             child,
             latest_cache: Vec::new(),
         })
     }
 
-    pub fn wait_until_prompt_startup(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn wait_until_prompt_startup(&mut self) -> Result<(), SimError> {
         self.wait_until_prompt(Duration::from_secs(2)).map_err(|e| {
-            format!("Timeout waiting for prompt during startup. Is the simulator installed and accessible via PATH? Error: {}", e).into()
+            if self.has_error() {
+                return SimError::CommandError("Simulation error during startup.".to_string());
+            }
+            SimError::TimeoutError(format!("Timeout waiting for prompt during startup. Is the simulator installed and accessible via PATH? Error: {}", e))
         })
     }
 
-    pub fn wait_until_prompt(&mut self, timeout: Duration) -> Result<(), Box<dyn Error>> {
+    pub fn wait_until_prompt(&mut self, timeout: Duration) -> Result<(), SimError> {
         let at_timeout = Instant::now() + timeout;
         let mut now = Instant::now();
         while at_timeout > now {
@@ -81,14 +84,14 @@ impl CommandCtl {
             now = Instant::now();
             thread::sleep(Duration::from_millis(10));
         }
-        Err("Timeout waiting for prompt".into())
+        Err(SimError::TimeoutError("Timeout waiting for prompt".to_string()).into())
     }
 
-    pub fn send_command(&mut self, command: &str) -> Result<(), Box<dyn Error>> {
+    pub fn send_command(&mut self, command: &str) -> Result<(), SimError> {
         self.send_command_no_wait(command)?;
         self.wait_until_prompt(Duration::from_millis(500))?;
         if self.has_error() {
-            return Err("Simulator reported an error".into());
+            return Err(SimError::CommandError(format!("Simulation error while executing command {}", command)).into());
         }
         Ok(())
     }
@@ -102,10 +105,10 @@ impl CommandCtl {
         false
     }
 
-    pub fn send_command_no_wait(&mut self, command: &str) -> Result<(), Box<dyn Error>> {
-        self.stdin.write_all(command.as_bytes())?;
-        self.stdin.write_all(b"\n")?;
-        self.stdin.flush()?;
+    pub fn send_command_no_wait(&mut self, command: &str) -> Result<(), SimError> {
+        let write_buffer = format!("{}\n", command);
+        self.stdin.write_all(write_buffer.as_bytes()).map_err(|e| SimError::IOError(format!("Failed to write to stdin: {}", e)))?;
+        self.stdin.flush().map_err(|e| SimError::IOError(format!("Failed to flush stdin: {}", e)))?;
         Ok(())
     }
 
@@ -113,7 +116,7 @@ impl CommandCtl {
         &mut self,
         command: &str,
         predicate: impl Fn(&str) -> bool,
-    ) -> Result<Vec<&ParsedLine>, Box<dyn Error>> {
+    ) -> Result<Vec<&ParsedLine>, SimError> {
         self.send_command(command)?;
         self.get_log_matches(predicate)
     }
@@ -121,7 +124,7 @@ impl CommandCtl {
     pub fn get_log_matches(
         &mut self,
         predicate: impl Fn(&str) -> bool,
-    ) -> Result<Vec<&ParsedLine>, Box<dyn Error>> {
+    ) -> Result<Vec<&ParsedLine>, SimError> {
         let mut matches = Vec::new();
         for line in self.parser.parsed_buffer().iter() {
             if matches!(line.line_type, LineType::Output | LineType::Log)
@@ -133,22 +136,23 @@ impl CommandCtl {
         Ok(matches)
     }
 
-    pub fn finish(&mut self) -> Result<(), Box<dyn Error>> {
-        self.stdin.write_all(b"quit\n")?;
-        let _ = self.stdin.flush();
+    pub fn finish(&mut self) -> Result<(), SimError> {
 
-        let mut stderr_reader = BufReader::new(&mut self.stderr);
-        let mut buf: String = String::new();
-        let lines = stderr_reader.read_to_string(&mut buf)?;
-        if lines > 0 {
-            println!("Simulator stderr output:\n{}", buf);
+        // Send quit command 
+        if let Err(e) = self.send_command_no_wait("quit") {
+            log::warn!("Failed to send quit command: {}", e);
         }
 
+        // Give it some time to exit gracefully
         thread::sleep(Duration::from_millis(100));
-        if self.child.try_wait()?.is_none() {
-            println!("Killing process");
-            self.child.kill()?;
-            self.child.wait()?;
+
+        // Check if process has exited
+        let wait_result = self.child.try_wait().map_err(|e| SimError::ProcessError(format!("Failed to wait for process exit: {}", e)))?;
+        // If not, forcibly kill it
+        if wait_result.is_none() {
+            log::warn!("Process did not exit. Killing process forcibly.");
+            self.child.kill().map_err(|e| SimError::ProcessError(format!("Failed to kill process: {}", e)))?;
+            self.child.wait().map_err(|e| SimError::ProcessError(format!("Failed to wait for process exit: {}", e)))?;
         }
         Ok(())
     }

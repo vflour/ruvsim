@@ -2,19 +2,19 @@
 
 A Rust library with Python bindings for controlling ModelSim/Questa simulators programmatically. Provides compilation, simulation control, signal inspection, breakpoint management, and memory access capabilities.
 
-## Rust API 
+Currently only supports Verilog/SystemVerilog at the moment.
 
+## Rust API 
 The Rust API provides direct access to ModelSim/Questa functionality through a type-safe interface.
 
-### Key Components
+### Features
 
 #### Compiler
-Compile HDL source files (Verilog/SystemVerilog and VHDL):
+Compile HDL source files (Verilog/SystemVerilog and VHDL), executes both vlib and vlog internally.
 
 ```rust
 use ruvsim::sim_compiler::{Compiler, CompilerCommand};
 
-// Create a compiler for SystemVerilog
 let compiler = Compiler::new("build/work_dir", "/path/to/modelsim/bin", CompilerCommand::Vlog)
     .enable_system_verilog()
     .set_work("work_lib")
@@ -25,8 +25,20 @@ let compiler = Compiler::new("build/work_dir", "/path/to/modelsim/bin", Compiler
 compiler.run().expect("Compilation failed");
 ```
 
+Additionally, you can leave the path to modelsim empty if it's already in your PATH.
+
+```rust
+let compiler = Compiler::new("build/work_dir", "", CompilerCommand::Vlog)
+    .enable_system_verilog()
+    .set_work("work_lib")
+    .add_dependency("hdl/design.sv")
+    .add_dependency("hdl/testbench.sv")
+    .add_optimization(5);
+
+```
+
 #### Runner
-Control simulation execution and inspect design state:
+Controls the simulation runner; it's essentially a wrapper for the vsim command line interface. 
 
 ```rust
 use ruvsim::sim_runner::{Runner, RunnerBuilder};
@@ -60,13 +72,13 @@ Read and modify signal values:
 use ruvsim::sim_types::{SimRadix, SimSignalDirection};
 
 // Get signals by path pattern
-let signals = runner.get_nets("/top/module/*", Some(SimSignalDirection::Output))
+let signals = runner.get_signals("/top/module/*", Some(SimSignalDirection::Output))
     .expect("Failed to get signals");
 
 // Examine a specific signal
-let mut signal = runner.get_net("/top/module/data", None)
+let mut signal = runner.get_signal("/top/module/data", None)
     .expect("Signal not found");
-runner.examine_net(&mut signal, SimRadix::Hexadecimal)
+runner.examine_signal(&mut signal, SimRadix::Hexadecimal)
     .expect("Failed to examine");
 
 println!("Signal value: {:?}", signal.value);
@@ -236,7 +248,7 @@ for mem in mems:
     print(f"{mem.name}: [{mem.left_bound}:{mem.right_bound}]")
 ```
 
-#### Advanced: Direct Commands
+#### Direct Commands
 
 ```python
 # Send arbitrary TCL commands
@@ -340,14 +352,6 @@ The `examples/` directory contains several complete working examples demonstrati
 ### Dummy - Basic Simulation
 **Location:** `examples/dummy/`
 
-A simple testbench demonstrating basic compilation and simulation workflow.
-
-**Features:**
-- HDL compilation with SystemVerilog
-- Basic simulation control (run_all)
-- Log parsing and verification
-- Simple signal monitoring
-
 **Run:**
 ```bash
 # Rust
@@ -357,73 +361,24 @@ cargo run --example dummy
 python examples/dummy/main.py
 ```
 
-**What it does:**
-- Compiles a simple counter module (`Dummy.sv`) and testbench
-- Runs simulation to completion
-- Searches logs for expected output patterns
-- Validates simulation results
-
 ### Memory Access
 **Location:** `examples/mem/`
-
-Demonstrates memory region inspection and signal forcing.
-
-**Features:**
-- Memory region enumeration (`list_mems()`)
-- Signal value forcing before simulation
-- Signal examination with numeric conversion
-- Custom memory initialization from file
 
 **Run:**
 ```bash
 cargo run --example mem
 ```
 
-**What it does:**
-- Lists all memory regions in the design
-- Forces input signal `a` to value 42
-- Runs simulation for 1000ns
-- Examines output signal `q` and prints numeric value
-- Demonstrates reading memory initialization from `mem.txt`
-
 ### Breakpoints
 **Location:** `examples/breakpoints/`
-
-Shows how to use simulation breakpoints for interactive debugging.
-
-**Features:**
-- Creating breakpoints at specific source lines
-- Listing active breakpoints
-- Running to breakpoints (`run_continue()`)
-- Examining simulation state at breakpoints
-- Deleting breakpoints dynamically
-- Stack trace inspection
 
 **Run:**
 ```bash
 cargo run --example breakpoints
 ```
 
-**What it does:**
-- Sets breakpoints at two locations in testbench
-- Runs simulation until first breakpoint hit
-- Inspects stack trace and simulation status
-- Deletes first breakpoint and continues
-- Stops at second breakpoint
-- Demonstrates iterative debugging workflow
-
 ### SERV MCU - Advanced Integration
 **Location:** `examples/serv_mcu/`
-
-Complex example demonstrating RISC-V soft core (SERV) integration with SDRAM controller.
-
-**Features:**
-- Multi-directory HDL compilation
-- External tool integration (bronzebeard assembler)
-- Binary to hex conversion for memory initialization
-- Long-running simulations
-- RISC-V instruction bus monitoring
-- Python implementation with regex-based log parsing
 
 **Run:**
 ```bash
@@ -433,22 +388,6 @@ cargo run --example serv_mcu
 # Python (requires: pip install bronzebeard)
 python examples/serv_mcu/main.py
 ```
-
-**What it does:**
-- Assembles RISC-V assembly code to machine code
-- Converts binary to memory initialization format
-- Compiles SERV CPU core with SDRAM testbench
-- Runs extended simulation (400,000 ns in Python version)
-- Monitors instruction bus and data transfers
-- Demonstrates real-world CPU verification workflow
-
-### HDL Source Files
-**Location:** `examples/hdl/`
-
-Shared HDL modules used by multiple examples:
-- `Dummy.sv` - Simple counter module with reset
-- `SDRAM.sv` - SDRAM controller model
-- Various testbenches
 
 ### Running Examples
 
@@ -462,17 +401,4 @@ cargo run --example dummy
 # For Python examples
 python examples/dummy/main.py
 ```
-
-### Example Structure
-
-Each example follows a consistent pattern:
-
-1. **Setup**: Create build directories and paths
-2. **Compile**: Use `Compiler` to compile HDL sources into work library
-3. **Initialize**: Create `Runner` instance with simulator arguments
-4. **Execute**: Run simulation with various control methods
-5. **Verify**: Inspect signals, logs, or memory state
-6. **Cleanup**: Finish simulation gracefully
-
-This structure can be adapted for your own verification environments.
 

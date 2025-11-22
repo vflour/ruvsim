@@ -2,7 +2,7 @@ use std::{thread, time::Duration};
 
 use ruvsim::{
     sim_compiler::{Compiler, CompilerCommand},
-    sim_runner::Runner,
+    sim_runner::Runner, sim_types::SimTimeUnit,
 };
 
 const SOURCE_DIR: &str = "examples/dummy/";
@@ -67,7 +67,7 @@ fn run_sim() {
     println!("Initial status: {}", initial_status);
 
     // Run for a bit, then sample time/status again
-    runner.run_for(10).expect("Failed to run for 10 ns");
+    runner.run_for(10, SimTimeUnit::Ns).expect("Failed to run for 10 ns");
     let t_after_10 = runner.get_time().expect("Failed to get time after 10 ns");
     let status_after_10 = runner
         .get_status()
