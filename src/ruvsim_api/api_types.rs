@@ -1,6 +1,6 @@
 use super::api_routes::{
     __path_create_session, __path_delete_session, __path_examine_signal, __path_get_logs,
-    __path_health, __path_list_signals, __path_list_sessions, __path_run_session, __path_send_cmd,
+    __path_health, __path_list_sessions, __path_list_signals, __path_run_session, __path_send_cmd,
 };
 
 use std::{
@@ -122,6 +122,7 @@ impl ApiResponseFormat<String> for SimSignalDirection {
             SimSignalDirection::Output => "Output",
             SimSignalDirection::Inout => "Inout",
             SimSignalDirection::Unknown => "All",
+            SimSignalDirection::None => "",
         }
         .to_string()
     }

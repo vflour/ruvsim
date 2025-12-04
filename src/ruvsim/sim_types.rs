@@ -1,8 +1,8 @@
 // Output lines
-use std::path::PathBuf;
-use std::str::FromStr;
 use num_traits::Num;
 use std::fmt;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 // Error types for simulator interaction
 #[derive(Debug, Clone)]
@@ -33,7 +33,6 @@ impl From<&str> for SimError {
 }
 
 impl std::error::Error for SimError {}
-
 
 // Regexes for each LineType:
 fn get_line_type_from_regex(line: &str) -> LineType {
@@ -248,6 +247,7 @@ pub enum SimSignalDirection {
     Input,
     Output,
     Inout,
+    None,
     Unknown,
 }
 
@@ -470,9 +470,11 @@ impl SimSignal {
             let clean_str = match val_str.splitn(2, '\'').nth(1) {
                 Some(after_quote) => {
                     // drop a single base char if present (b/o/d/x, case-insensitive), then lowercase
-                    let rest = after_quote.trim_start_matches(|c: char| {
-                        matches!(c, 'b' | 'B' | 'o' | 'O' | 'x' | 'X' | 'd' | 'D')
-                    }).to_lowercase();
+                    let rest = after_quote
+                        .trim_start_matches(|c: char| {
+                            matches!(c, 'b' | 'B' | 'o' | 'O' | 'x' | 'X' | 'd' | 'D')
+                        })
+                        .to_lowercase();
 
                     // This gets tricky, because some values will contain 'x' or 'z' for unknown/high-impedance
                     // Return None in these cases
@@ -491,7 +493,9 @@ impl SimSignal {
     }
 
     pub fn get_numeric_value<T>(&self) -> Option<T>
-    where T: Num {
+    where
+        T: Num,
+    {
         // Remove any prefixes like "0'b", "0'd", etc.
         if let Some(clean_str) = self.clean_value_str() {
             let (radix, _val_str) = self.value.as_ref().unwrap();
@@ -536,8 +540,7 @@ impl SimSignal {
                 }
                 SimRadix::Unknown => None,
             }
-        }
-        else {
+        } else {
             None
         }
     }

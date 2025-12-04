@@ -6,11 +6,12 @@ use std::{cell::RefCell, path::Path};
 use pyo3::{Bound, exceptions::PyRuntimeError, prelude::*, types::PyModule};
 use regex::Regex;
 
-use crate::sim_types::{
-    ParsedLine, SimBreakpoint, SimDriver, SimMemory, SimRadix, SimSignalDirection, SimSignal, SimTimeUnit,
-};
-use crate::sim_runner::Runner;
 use crate::sim_compiler::{Compiler as RsCompiler, CompilerCommand};
+use crate::sim_runner::Runner;
+use crate::sim_types::{
+    ParsedLine, SimBreakpoint, SimDriver, SimMemory, SimRadix, SimSignal, SimSignalDirection,
+    SimTimeUnit,
+};
 
 #[pyclass]
 #[derive(Clone)]
@@ -57,6 +58,7 @@ impl PySignal {
             SimSignalDirection::Output => "Output".to_string(),
             SimSignalDirection::Inout => "Inout".to_string(),
             SimSignalDirection::Unknown => "Unknown".to_string(),
+            SimSignalDirection::None => "".to_string(),
         }
     }
     #[getter]
@@ -164,6 +166,7 @@ fn parse_direction(dir: &str) -> PyResult<SimSignalDirection> {
         "in" | "input" => Ok(SimSignalDirection::Input),
         "out" | "output" => Ok(SimSignalDirection::Output),
         "inout" => Ok(SimSignalDirection::Inout),
+        "" => Ok(SimSignalDirection::None),
         _ => Err(pyo3::exceptions::PyValueError::new_err("invalid direction")),
     }
 }
@@ -265,8 +268,12 @@ impl PyRunner {
     }
 
     #[pyo3(signature = (path=None, direction=None))]
-    fn get_signals(&self, path: Option<&str>, direction: Option<String>) -> PyResult<Vec<PySignal>> {
-        let p = path.unwrap_or_else(|| "*");
+    fn get_signals(
+        &self,
+        path: Option<&str>,
+        direction: Option<String>,
+    ) -> PyResult<Vec<PySignal>> {
+        let p = path.unwrap_or_else(|| "");
         let dir = match direction {
             Some(d) => Some(parse_direction(&d)?),
             None => None,
@@ -276,7 +283,8 @@ impl PyRunner {
             .borrow_mut()
             .get_signals(&p, dir)
             .map(|signals| {
-                signals.into_iter()
+                signals
+                    .into_iter()
                     .map(|n| PySignal {
                         inner: RefCell::new(n),
                     })
@@ -294,7 +302,11 @@ impl PyRunner {
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
 
-    fn examine_signals_batch(&self, signals: Vec<Bound<'_, PySignal>>, radix: String) -> PyResult<()> {
+    fn examine_signals_batch(
+        &self,
+        signals: Vec<Bound<'_, PySignal>>,
+        radix: String,
+    ) -> PyResult<()> {
         let rdx = parse_radix(&radix)?;
         let mut inner_signals: Vec<SimSignal> = signals
             .iter()

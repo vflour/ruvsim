@@ -38,6 +38,7 @@ except Exception:
     # Fallback to original
     blob = bytes(machine_code)
 
+
 # split into 4-byte little-endian words for mem.txt
 def chunk_words_le(b: bytes):
     # pad to multiple of 4 bytes
@@ -45,6 +46,7 @@ def chunk_words_le(b: bytes):
         b = b + b"\x00" * (4 - (len(b) % 4))
     for i in range(0, len(b), 4):
         yield b[i : i + 4]
+
 
 with open(os.path.join(build_dir, "mem.txt"), "wt") as mem_file:
     for w in chunk_words_le(blob):
@@ -55,7 +57,7 @@ c = PyCompiler("build/sdram_tb", "", "vlog")
 c.enable_system_verilog()
 c.set_work("work_SDRAM_tb")
 # Compile SDRAM model and the new SERV+SDRAM testbench top
-c.add_dependencies(["examples/hdl/SDRAM.sv", "examples/hdl/serv_sdram_tb.sv"])
+c.add_dependencies(["examples/serv_mcu/serv_sdram_tb.sv"])
 
 serv_source_path = os.path.join(example_dir, "serv")
 # Ensure include path for SERV headers such as serv_params.vh
@@ -83,7 +85,9 @@ r.wait_until_prompt_startup()
 r.send_command("log -r /*")
 r.run_for(1, "ns")
 
-r.run_for(400000, "ns")
+all_signals = r.get_signals("/serv_sdram_tb/*")
+
+r.run_for(40, "ns")
 results = r.send_and_expect_regex('puts "MEMS LIST: [mem list]"', r"^MEMS LIST: .*")
 for result in results:
     memory_path_regex: Any = re.compile(r"Verilog: (\/[a-zA-Z_\/]+)")
@@ -96,8 +100,9 @@ for result in results:
     # print(contents)
 
 
-returned = r.send_and_expect_regex("examine /serv_sdram_tb/i_ibus_rdt", r"^# 32'h[xXzZ0-9a-fA-F]+")
-print(returned[0])
+returned = r.send_and_expect_regex(
+    "examine /serv_sdram_tb/i_ibus_rdt", r"^# 32'h[xXzZ0-9a-fA-F]+"
+)
 
 
 r.finish()

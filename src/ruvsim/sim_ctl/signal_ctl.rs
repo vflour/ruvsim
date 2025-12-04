@@ -1,4 +1,6 @@
-use super::super::sim_types::{SimDriver, SimRadix, SimSignal, SimSignalDirection, SimError, LineType};
+use super::super::sim_types::{
+    LineType, SimDriver, SimError, SimRadix, SimSignal, SimSignalDirection,
+};
 use super::command_ctl::CommandCtl;
 
 pub struct SignalCtl {
@@ -19,11 +21,7 @@ impl SignalCtl {
         &mut self.signals
     }
 
-    pub fn populate_all(
-        &mut self,
-        ctl: &mut CommandCtl,
-        top_path: &str,
-    ) -> Result<(), SimError> {
+    pub fn populate_all(&mut self, ctl: &mut CommandCtl, top_path: &str) -> Result<(), SimError> {
         let all = self.get_signals_with_ctl(ctl, top_path, None)?;
         self.signals = all;
         Ok(())
@@ -38,11 +36,7 @@ impl SignalCtl {
         let mut nets: Vec<SimSignal> = Vec::new();
         let directions: Vec<SimSignalDirection> = match net_direction {
             Some(d) => vec![d],
-            None => vec![
-                SimSignalDirection::Input,
-                SimSignalDirection::Output,
-                SimSignalDirection::Inout,
-            ],
+            None => vec![SimSignalDirection::None],
         };
         for dir in directions {
             let paths = self.get_signal_paths(ctl, path, dir)?;
@@ -61,13 +55,14 @@ impl SignalCtl {
         net_direction: SimSignalDirection,
     ) -> Result<Vec<String>, SimError> {
         let direction_arg = match net_direction {
-            SimSignalDirection::Input => "in",
-            SimSignalDirection::Output => "out",
-            SimSignalDirection::Inout => "inout",
+            SimSignalDirection::Input => "-in",
+            SimSignalDirection::Output => "-out",
+            SimSignalDirection::Inout => "-inout",
+            SimSignalDirection::None => "",
             _ => return Err("Invalid direction for get_signal_paths".into()),
         };
         let output = ctl.send_and_expect_result(
-            &format!("puts \"NETS: [find nets -{} {}]\"", direction_arg, path),
+            &format!("puts \"NETS: [find nets {} {}]\"", direction_arg, path),
             |line| line.starts_with("NETS:"),
         )?;
         let line = output.last().unwrap().content.trim_start_matches("NETS:");
