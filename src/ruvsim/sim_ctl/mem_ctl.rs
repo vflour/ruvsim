@@ -95,13 +95,22 @@ impl MemCtl {
                 '1' => 1,
                 _ => return Err(SimError::CommandError(format!("Invalid bit character: {}", bit_char).into())),
             };
-            let command = format!(
-                "force -freeze {}[{}][{}] {}",
-                mem.name,
-                index,
-                word_bit_pos,
-                bit_value
-            );
+            let command = if width == 1 {
+                format!(
+                    "force -freeze {}[{}] {}",
+                    mem.name,
+                    index,
+                    bit_value
+                )
+            } else {
+                format!(
+                    "force -freeze {}[{}][{}] {}",
+                    mem.name,
+                    index,
+                    word_bit_pos,
+                    bit_value
+                )
+            };
             ctl.send_command(&command)?;
         }
 
