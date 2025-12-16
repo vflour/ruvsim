@@ -537,6 +537,35 @@ class PyRunner:
             RuntimeError: If listing fails
         """
         ...
+    
+    def read_mem(self, mem: PyMemory) -> list[int]:
+        """
+        Read the contents of a memory block.
+        
+        Args:
+            mem: The memory block to read
+            
+        Returns:
+            List of bytes representing the memory contents
+            
+        Raises:
+            RuntimeError: If read operation fails
+        """
+        ...
+    
+    def write_mem(self, mem: PyMemory, offset: int, value: list[int]) -> None:
+        """
+        Write data to a memory block at a specified offset.
+        
+        Args:
+            mem: The memory block to write to
+            offset: Bit offset within the memory to start writing
+            value: List of bytes to write
+            
+        Raises:
+            RuntimeError: If write operation fails
+        """
+        ...
 
 class PyCompiler:
     """

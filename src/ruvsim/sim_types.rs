@@ -358,6 +358,7 @@ pub struct SimMemory {
     pub name: String,
     pub size: SimSignalBounds,
     pub width: usize,
+    pub data: Option<Vec<u8>>,
 }
 
 impl SimMemory {
@@ -378,12 +379,14 @@ impl SimMemory {
                         name,
                         size: bounds,
                         width,
+                        data: None,
                     });
                 }
             }
         }
         None
     }
+
 }
 
 #[derive(Clone)]
@@ -407,7 +410,11 @@ impl SimSignalBounds {
     }
 
     pub fn width(&self) -> usize {
-        (self.left - self.right + 1) as usize
+        if self.left >= self.right {
+            (self.left - self.right + 1) as usize
+        } else {
+            (self.right - self.left + 1) as usize
+        }
     }
 }
 

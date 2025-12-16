@@ -13,7 +13,7 @@ module Dummy_tb(
 
     always #5 clk = ~clk; // 100 MHz-ish for simulation speed
 
-    reg [15:0][0:3] memory_slot [0:3];
+    reg [63:0] memory_slot [0:3];
 
     initial begin
         $readmemh("mem.txt", memory_slot);

@@ -525,4 +525,22 @@ impl Runner {
     pub fn list_mems(&mut self) -> Result<Vec<SimMemory>, SimError> {
         self.mem_ctl.list(&mut self.ctl)
     }
+
+    pub fn read_mem(
+        &mut self,
+        mem: &mut SimMemory,
+    ) -> Result<Vec<u8>, SimError> {
+        self.mem_ctl.read(&mut self.ctl, mem)
+    }
+
+    pub fn write_mem(
+        &mut self,
+        mem: &SimMemory,
+        offset: usize,
+        value: Vec<u8>,
+    ) -> Result<(), SimError> {
+
+        self.mem_ctl.write(&mut self.ctl, mem, offset, value)?;
+        Ok(())
+    }
 }

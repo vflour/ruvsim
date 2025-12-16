@@ -2,7 +2,7 @@ use std::{thread, time::Duration};
 
 use ruvsim::{
     sim_compiler::{Compiler, CompilerCommand},
-    sim_runner::Runner, sim_types::SimTimeUnit,
+    sim_runner::Runner, sim_types::{SimRadix, SimTimeUnit},
 };
 
 const SOURCE_DIR: &str = "examples/dummy/";
@@ -76,6 +76,29 @@ fn run_sim() {
         "After 10 ns run: time={}, status={}",
         t_after_10, status_after_10
     );
+
+
+    // List, edit mems
+    let mut mems = runner.list_mems().expect("Failed to get mems");
+    println!("Memories before edit:");
+    for mem in &mut mems {
+        println!("Reading memory {:?}", mem.name);
+        let mem_data = runner.read_mem(mem);
+        println!("  {:?}", mem_data);
+    }
+    // Write '12', offset 4 to first memory
+    if let Some(first_mem) = mems.first() {
+        runner
+            .write_mem(first_mem, 8, vec![0x12])
+            .expect("Failed to write mem");
+    }
+    // Reread
+    for mem in &mut mems {
+        let mem_data = runner.read_mem(mem);
+        println!("Memories after edit:");
+        println!("  {:?}", mem_data);
+    }
+
 
     // Finish the simulation
     runner.run_all().expect("Failed to run all");

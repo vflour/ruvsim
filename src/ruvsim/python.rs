@@ -499,6 +499,21 @@ impl PyRunner {
             .map(|mems| mems.into_iter().map(|m| PyMemory { inner: m }).collect())
             .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
     }
+
+    fn read_mem(&self, mem: &PyMemory) -> PyResult<Vec<u8>> {
+        let mut mem_inner = mem.inner.clone();
+        self.inner
+            .borrow_mut()
+            .read_mem(&mut mem_inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
+
+    fn write_mem(&self, mem: &PyMemory, offset: usize, value: Vec<u8>) -> PyResult<()> {
+        self.inner
+            .borrow_mut()
+            .write_mem(&mem.inner, offset, value)
+            .map_err(|e| PyRuntimeError::new_err(format!("{}", e)))
+    }
 }
 
 #[pyclass]
