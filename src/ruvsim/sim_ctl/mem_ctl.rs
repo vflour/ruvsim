@@ -37,32 +37,26 @@ impl MemCtl {
         // Parse the line:
         let line = output.last().unwrap().content.trim_start_matches("MEM_DATA:");
         // First, split by newline separator (now ; character)
-        let lines = line.split(';');
+        let bit_data = line.split(';')
+            .into_iter()
+            .map(|s: &str| s.split_whitespace().skip(1).collect::<Vec<&str>>().join(""))
+            .collect::<Vec<String>>()
+            .join("");
+
         let mut data = Vec::new();
-
-        for l in lines {
-            // Each line starts with an @ following a number. Trim it and then split by spaces.
-            // ie. @0 10101010 11001100 -> [10101010, 11001100]
-            let values: Vec<&str> = l.split_whitespace()
-                .skip(1) // Skip the @address part
-                .collect();
-            let joined = values.join("");
-
-            // Then split into 8 bit chunks
-            let byte_chunks = joined.as_bytes().chunks(8);
-            for byte_chunk in byte_chunks {
-                let mut byte_str = std::str::from_utf8(byte_chunk)
-                    .map_err(|e| SimError::CommandError(format!("UTF8 Error parsing memory data: {}", e).into()))?.to_lowercase();
-                byte_str = byte_str.replace("x", "0"); // Treat unknowns as 0
-                byte_str = byte_str.replace("z", "0"); // Treat high-impedance as 0
-                
-                let byte_value = u8::from_str_radix(&byte_str, 2)
-                    .map_err(|e| SimError::CommandError(format!("Error parsing byte value from memory data: {}", e).into()))?;
-                data.push(byte_value);
-            }
-
-                
+        // Then split into 8 bit chunks
+        let byte_chunks = bit_data.as_bytes().chunks(8);
+        for byte_chunk in byte_chunks {
+            let mut byte_str = std::str::from_utf8(byte_chunk)
+                .map_err(|e| SimError::CommandError(format!("UTF8 Error parsing memory data: {}", e).into()))?.to_lowercase();
+            byte_str = byte_str.replace("x", "0"); // Treat unknowns as 0
+            byte_str = byte_str.replace("z", "0"); // Treat high-impedance as 0
+            
+            let byte_value = u8::from_str_radix(&byte_str, 2)
+                .map_err(|e| SimError::CommandError(format!("Error parsing byte value from memory data: {}", e).into()))?;
+            data.push(byte_value);
         }
+        
         mem.data = Some(data.clone());
         Ok(data)
 
