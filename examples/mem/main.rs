@@ -68,15 +68,28 @@ fn run_sim() {
         .wait_until_prompt_startup()
         .expect("Simulator did not start");
 
+    runner.run_for(10, SimTimeUnit::Ns).expect("Initial run failed");
+
     // List all memories
-    let mems = runner.list_mems().expect("Failed to list memories");
+    let mut mems = runner.list_mems().expect("Failed to list memories");
     println!("Memories in the simulation:");
-    for mem in mems {
+    for mut mem in mems {
         println!(
-            "    Memory: {}, Size: [{}:{}]",
-            mem.name, mem.size.left, mem.size.right
+            "    Memory: {}, Width: {}, Size: [{}:{}]",
+            mem.name, mem.width, mem.size.left, mem.size.right
         );
+        let lines = runner.send_and_expect_result(
+            &format!("puts \"MEM_CONTENT:[string map {{\\n ;}} [mem display -format bin {}]]\"", mem.name), 
+            |log| log.starts_with("MEM_CONTENT:")
+        ).expect("Failed to read memory content");
+        let line = lines.last().expect("No memory content returned");
+        let content = line.content.trim_start_matches("MEM_CONTENT:");
+        println!("        {}", content);
+        let data = runner.read_mem(&mut mem);
+        println!("        Data: {:?}", data);
+
     }
+    
     // Set the signal 'a' to 42
     let a_in = runner
         .get_signal("/Mem_tb/a", Option::None)

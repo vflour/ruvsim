@@ -5,6 +5,8 @@ module Mem_tb (
 
     // 64 x 8-bit memory
     logic [7:0] mem [0:63];
+    logic [7:0][3:0] mem_2 [0:63];
+    logic mem_3 [0:63];
 
     // initialize memory with simple values (8-bit = index)
     initial begin
